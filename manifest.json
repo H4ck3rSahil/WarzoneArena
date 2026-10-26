@@ -1,0 +1,12 @@
+{
+  "background_color": "#ffffff",
+  "dir": "ltr",
+  "display": "fullscreen",
+  "name": "WarzoneArena",
+  "orientation": "landscape",
+  "scope": "/",
+  "short_name": "WarzoneArena",
+  "start_url": "/",
+  "theme_color": "#ffffff",
+  "description": "3d free fire + bgmi mixeup  excellent game"
+}
