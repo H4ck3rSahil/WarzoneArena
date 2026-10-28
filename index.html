@@ -628,7 +628,7 @@ function wzaApplyBright() {
   const effectiveSat = modePreset ? 150 : 100;
   canvasEl.style.filter = "brightness(" + (effectiveBright / 100) + ") contrast(" + (effectiveContrast / 100) + ") saturate(" + (effectiveSat / 100) + ")";
 }
-wzaApplyBright();
+// Apply the filter only after gameMode has been initialized (calling earlier triggers a TDZ ReferenceError).
 const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
 const isMobileDevice = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad/i.test(navigator.userAgent);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobileDevice ? 1.35 : 1.75));
@@ -1729,6 +1729,7 @@ function eyeTarget() { return gameMode === "clash" ? (isTraining() ? (crouchTogg
 let eyeCur = EYE_STAND;
 const stats = { kills: 0, headshots: 0, shots: 0, hits: 0 };
 let gameMode = "tdm";
+wzaApplyBright();
 // Real 1v1 networking via PeerJS cloud signaling + WebRTC data channel (internet required).
 let pvpPeer = null, pvpPC = null, pvpDC = null, pvpRole = "host", pvpName = (localStorage.getItem("wzaPlayerName") || "PLAYER"), pvpRemoteName = "OPPONENT";
 let pvpRoomCode = "", pvpRemote = null, pvpRemoteHP = 100, pvpLocalScore = 0, pvpRemoteScore = 0, pvpLastSend = 0, pvpConnected = false, pvpStarted = false;
