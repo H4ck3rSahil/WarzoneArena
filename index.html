@@ -3599,23 +3599,13 @@ let mouseL = false, justPressed = false, swayInX = 0, swayInY = 0, swayX = 0, sw
 let vignetteT = 0, dmgDirT = 0;
 const SWITCH_TIME = 0.4;
 const keys = {};
-const DEFAULT_BINDS = {forward:"KeyW", back:"KeyS", left:"KeyA", right:"KeyD", jump:"Space", reload:"KeyR", sprint:"KeyE", crouch:"KeyC", gloo:"KeyF", medkit:"KeyH", prone:"KeyZ", emote:"KeyB", emotePrev:"ArrowLeft", emoteNext:"ArrowRight", emoteSelect:"ShiftLeft", cameraMode:"KeyN", weapon1:"Digit1", weapon2:"Digit2", weapon3:"Digit3", weapon4:"Digit4"};
+const DEFAULT_BINDS = {forward:"KeyW", back:"KeyS", left:"KeyA", right:"KeyD", jump:"Space", reload:"KeyR", sprint:"KeyE", crouch:"KeyC", gloo:"KeyF", medkit:"KeyH", prone:"KeyZ", emote:"ShiftLeft", weapon1:"Digit1", weapon2:"Digit2", weapon3:"Digit3", weapon4:"Digit4"};
 const binds = {...DEFAULT_BINDS};
-let wzaCameraMode = "fpp", wzaCameraBlend = 0;
-const wzaCamAim = new THREE.Object3D(), wzaCamTargetPos = new THREE.Vector3(), wzaCamLookAt = new THREE.Vector3(), wzaCamTargetQuat = new THREE.Quaternion();
-function wzaSyncCameraButton(){const b=document.getElementById("wzaCameraBtnTc");if(b){b.textContent=wzaCameraMode.toUpperCase();b.setAttribute("aria-label","Switch camera view. Current view: "+wzaCameraMode.toUpperCase());}}
-function wzaToggleCamera(){wzaCameraMode = wzaCameraMode === "fpp" ? "tpp" : "fpp"; try{localStorage.setItem("wzaCameraMode",wzaCameraMode);}catch(_){} wzaSyncCameraButton(); if(typeof window.wzaSyncCameraAvatar==="function")window.wzaSyncCameraAvatar(); return wzaCameraMode;}
-try{const savedCamera=localStorage.getItem("wzaCameraMode");if(savedCamera==="tpp"||savedCamera==="fpp")wzaCameraMode=savedCamera;}catch(_){}
-window.wzaToggleCamera=wzaToggleCamera;
 try { const sv = JSON.parse(localStorage.getItem("wzaBinds") || "{}"); Object.keys(DEFAULT_BINDS).forEach(k => { if (typeof sv[k] === "string" && sv[k]) binds[k] = sv[k]; }); } catch (e) {}
-// Keep the wheel opener separate from its confirm key: B opens, Left Shift selects.
-if (binds.emote === "ShiftLeft") { binds.emote = "KeyB"; try { localStorage.setItem("wzaBinds", JSON.stringify(binds)); } catch (_) {} }
-if (!binds.emoteSelect || binds.emoteSelect === "Enter") binds.emoteSelect = "ShiftLeft";
-if (!binds.emotePrev) binds.emotePrev = "ArrowLeft";
-if (!binds.emoteNext) binds.emoteNext = "ArrowRight";
-if (!binds.cameraMode) binds.cameraMode = "KeyN";
+// Migrate the previous default emote key (B) to Left Shift; keep any other custom binding.
+if (binds.emote === "KeyB") { binds.emote = "ShiftLeft"; try { localStorage.setItem("wzaBinds", JSON.stringify(binds)); } catch (_) {} }
 let waitingBind = null;
-const bindLabels = {forward:"Move forward",back:"Move backward",left:"Move left",right:"Move right",jump:"Jump",reload:"Reload",sprint:"Sprint toggle",crouch:"Crouch",gloo:"Place Gloo Wall",medkit:"Use Medkit",prone:"Prone",emote:"Open Emote Menu",emotePrev:"Previous Emote",emoteNext:"Next Emote",emoteSelect:"Select / Play Highlighted Emote",cameraMode:"Toggle FPP / TPP Camera",weapon1:"Select AK-47",weapon2:"Select AWM",weapon3:"Select MP5-SMG",weapon4:"Select Pistol"};
+const bindLabels = {forward:"Move forward",back:"Move backward",left:"Move left",right:"Move right",jump:"Jump",reload:"Reload",sprint:"Sprint toggle",crouch:"Crouch",gloo:"Place Gloo Wall",medkit:"Use Medkit",prone:"Prone",emote:"Emote wheel",weapon1:"Select AK-47",weapon2:"Select AWM",weapon3:"Select MP5-SMG",weapon4:"Select Pistol"};
 function keyName(code){return ({Space:"SPACE",ShiftLeft:"LEFT SHIFT",ShiftRight:"RIGHT SHIFT",ControlLeft:"LEFT CTRL",AltLeft:"LEFT ALT"})[code] || (code.startsWith("Key")?code.slice(3):code.startsWith("Digit")?code.slice(5):code.toUpperCase());}
 function renderKeyRows(){const host=$("keyRows"); if(!host)return; host.innerHTML=""; Object.keys(binds).forEach(action=>{const row=document.createElement("div");row.className="keyrow";const label=document.createElement("span");label.textContent=bindLabels[action];const btn=document.createElement("button");btn.type="button";btn.textContent=(waitingBind===action?"PRESS KEY…":keyName(binds[action]));btn.addEventListener("click",()=>{waitingBind=action;renderKeyRows();});row.append(label,btn);host.appendChild(row);});}
 
@@ -4848,36 +4838,8 @@ function updatePlayer(dt) {
   const spk = sprintBlend, spScale = 1; // Training mein bhi visible sprint/run camera bounce
   const spBobY = spk ? Math.abs(Math.sin(bobT)) * 0.07 * spk * spScale : 0;          // body bounce
   const spBobX = spk ? Math.sin(bobT) * 0.035 * spk * spScale : 0;                    // side sway
-  const fpX = player.pos.x + Math.cos(player.yaw) * spBobX;
-  const fpY = player.pos.y + eyeCur + bobY + spBobY;
-  const fpZ = player.pos.z - Math.sin(player.yaw) * spBobX;
-  const fpPitch = player.pitch + recoilOff + (spk ? Math.sin(bobT * 2) * 0.012 * spk : 0);
-  const fpYaw = player.yaw + (spk ? Math.cos(bobT) * 0.008 * spk : 0);
-  const fpRoll = spk ? Math.sin(bobT) * 0.02 * spk : 0;
-  wzaCameraBlend += ((wzaCameraMode === "tpp" ? 1 : 0) - wzaCameraBlend) * Math.min(1, dt * 7.5);
-  // The first-person weapon is parented to the view camera; hide it in TPP.
-  if(typeof vm!=='undefined')vm.visible=(wzaCameraMode!=='tpp');
-  wzaCamAim.position.set(fpX,fpY,fpZ);
-  wzaCamAim.rotation.order = "YXZ";
-  wzaCamAim.rotation.set(fpPitch,fpYaw,fpRoll);
-  wzaCamTargetPos.set(fpX,fpY,fpZ);
-  wzaCamTargetQuat.copy(wzaCamAim.quaternion);
-  if(wzaCameraBlend > 0.001){
-    const S=(typeof avatarScale==="function"?avatarScale():1);
-    const distance=(ads?2.35:4.15)*S;
-    const shoulder=(ads?0.48:0.72)*S;
-    wzaCamTargetPos.set(player.pos.x + Math.sin(player.yaw)*distance + Math.cos(player.yaw)*shoulder,
-      player.pos.y + eyeCur + (ads?0.12:0.55)*S,
-      player.pos.z + Math.cos(player.yaw)*distance - Math.sin(player.yaw)*shoulder);
-    wzaCamLookAt.set(player.pos.x,player.pos.y+eyeCur*0.78,player.pos.z);
-    wzaCamAim.position.copy(wzaCamTargetPos);
-    wzaCamAim.lookAt(wzaCamLookAt);
-    wzaCamTargetQuat.copy(wzaCamAim.quaternion);
-  }
-  if(wzaCameraBlend>0.02&&typeof window.wzaSyncCameraAvatar==="function")window.wzaSyncCameraAvatar();
-  camera.position.lerp(wzaCamTargetPos,Math.min(1,dt*12));
-  camera.quaternion.slerp(wzaCamTargetQuat,Math.min(1,dt*12));
-  camera.updateMatrixWorld();
+  camera.position.set(player.pos.x + Math.cos(player.yaw) * spBobX, player.pos.y + eyeCur + bobY + spBobY, player.pos.z - Math.sin(player.yaw) * spBobX);
+  camera.rotation.set(player.pitch + recoilOff + (spk ? Math.sin(bobT * 2) * 0.012 * spk : 0), player.yaw + (spk ? Math.cos(bobT) * 0.008 * spk : 0), spk ? Math.sin(bobT) * 0.02 * spk : 0);   // screen shake + roll
 
   // Auto-healing removed: health only comes from medkits (enemy drops / loot box).
   vignetteT = Math.max(0, vignetteT - dt);
@@ -5756,13 +5718,13 @@ function openMenuPanel(kind) {
       '<h3>1v1 MULTIPLAYER</h3>' +
       '<p>Online 1v1. Host gets a 6-digit room code; Join enters it. Both Ready, then Host starts. First to 4 points.</p>' +
       '</div>' +
+      '<button id="startSelectedModeBtn" type="button" style="width:100%;margin-top:12px;padding:12px;border:1px solid #4bc8a5;border-radius:8px;background:linear-gradient(135deg,#17614f,#173b50);color:#eafff8;font-weight:900;letter-spacing:.7px">START SELECTED MODE</button>' +
       '</div>';
     let selectedModeForStart = isTraining() ? "training" : gameMode;
     setTimeout(() => {
       const selectCard = id => { document.querySelectorAll(".modeCard").forEach(c => c.classList.remove("selected")); const el=$(id); if(el)el.classList.add("selected"); };
-      const launchSelectedMode = mode => { selectedModeForStart=mode; gameMode=mode; if(mode==="clash")setClashVariant("squad"); closeMenuPanel(); activateGameFromGesture(mode); };
-      $("modeCardSurvival").onclick = () => launchSelectedMode("survival");
-      $("modeCardTDM").onclick = () => launchSelectedMode("tdm");
+      $("modeCardSurvival").onclick = () => { selectedModeForStart="survival"; gameMode=selectedModeForStart; selectCard("modeCardSurvival"); };
+      $("modeCardTDM").onclick = () => { selectedModeForStart="tdm"; gameMode=selectedModeForStart; selectCard("modeCardTDM"); };
       $("modeCardTraining").onclick = () => {
         // Keep the currently loaded game mode untouched while the room lobby is open.
         // Training map is selected/loaded only when the host presses START TRAINING.
@@ -5773,7 +5735,7 @@ function openMenuPanel(kind) {
         try { wzMenuBgTick(); } catch (_) {}
         openTrainingRoomPanel();
       };
-      $("modeCardClash").onclick = () => launchSelectedMode("clash");
+      $("modeCardClash").onclick = () => { selectedModeForStart="clash"; gameMode="clash"; setClashVariant("squad"); selectCard("modeCardClash"); };
       $("modeCardPVP").onclick = () => {
         selectedModeForStart="pvp";
         selectCard("modeCardPVP");
@@ -5781,6 +5743,13 @@ function openMenuPanel(kind) {
         overlay.classList.remove("hide", "result");
         try { wzMenuBgTick(); } catch (_) {}
         openPvpPanel();
+      };
+      const startModeBtn=$("startSelectedModeBtn"); if(startModeBtn)startModeBtn.onclick=()=>{
+        if(selectedModeForStart==="training"){openTrainingRoomPanel();return;}
+        if(selectedModeForStart==="pvp"){openPvpPanel();return;}
+        const mode=selectedModeForStart; if(mode!=="survival"&&mode!=="tdm"&&mode!=="clash")return;
+        if(mode==="clash")setClashVariant("squad");
+        closeMenuPanel(); activateGameFromGesture(mode);
       };
     }, 50);
   } else {
@@ -6016,7 +5985,6 @@ document.addEventListener("keydown", e => {
   }
   keys[e.code] = true; keys.Shift = e.shiftKey;
   if (state !== "playing") return;
-  if (e.code === binds.cameraMode && !e.repeat) { e.preventDefault(); wzaToggleCamera(); return; }
   if (e.code === "KeyV" && !e.repeat) { if (!interactTrainingShop()) interactClashDoor(); }
   if (e.code === binds.reload) startReload();
   if (e.code === binds.gloo && !e.repeat) placeGlooWall();
@@ -6531,7 +6499,6 @@ frame();
 #wzaEmoteBtn{position:absolute;right:12px;top:8px;z-index:8;width:48px;height:48px;border-radius:50%;border:2px solid #ffe082;background:rgba(10,18,28,.8);color:#fff;font-size:24px;pointer-events:auto;box-shadow:0 2px 10px #0008}
 #wzaProneBtn{right:16px;bottom:198px}
 #touchControls #wzaEmoteBtnTc{right:98px;bottom:238px;font-size:22px;border-color:#ffe082;background:rgba(10,18,28,.78)}
-#touchControls #wzaCameraBtnTc{right:98px;bottom:306px;font-size:10px;border-color:#7de5ff;background:rgba(8,24,36,.86)}
 body.touch-ui #wzaEmoteBtn{display:none!important}
 #wzaEmoteWheel{position:fixed;z-index:10010;left:50%;top:50%;width:min(82vw,420px);height:min(82vw,420px);max-height:72vh;transform:translate(-50%,-50%);display:none;border-radius:50%;border:4px solid #d8e8ff;background:radial-gradient(circle,#101a2c 0 31%,#07101edb 32% 100%);box-shadow:0 0 0 5px #1c345a,0 0 28px #42ff9d;pointer-events:auto}
 #wzaEmoteWheel.open{display:block}
@@ -6601,7 +6568,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
 #wzaEmoteWheel [data-emote="6"]{left:17%!important;top:31.5%!important}
 </style>
 <div id="wzaEmoteWheel" aria-label="Emote wheel">
- <div class="wza-center">EMOTES<small>LEFT SHIFT · PLAY</small></div>
+ <div class="wza-center">EMOTES</div>
  <button class="wza-emote" data-emote="1" aria-label="Play emote 1"><span>🙌</span></button>
  <button class="wza-emote" data-emote="2" aria-label="Play emote 2"><span>🕺</span></button>
  <button class="wza-emote" data-emote="3" aria-label="Play emote 3"><span>🧎</span></button>
@@ -6625,8 +6592,6 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   const right=$id('tcRight');
   if(right&&!$id('wzaProneBtn')){const b=document.createElement('button');b.id='wzaProneBtn';b.type='button';b.className='tcb tcSm';b.textContent='PRONE';right.appendChild(b);b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();toggleProne();});}
   if(right&&!$id('wzaEmoteBtnTc')){const b=document.createElement('button');b.id='wzaEmoteBtnTc';b.type='button';b.className='tcb tcSm';b.setAttribute('aria-label','Emote button');b.textContent='☺';right.appendChild(b);b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();toggleWheel();});}
-  if(right&&!$id('wzaCameraBtnTc')){const b=document.createElement('button');b.id='wzaCameraBtnTc';b.type='button';b.className='tcb tcSm';b.textContent=wzaCameraMode.toUpperCase();b.setAttribute('aria-label','Switch camera view');right.appendChild(b);b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();wzaToggleCamera();});}
-  wzaSyncCameraButton();
   const hud=$id('hud'); if(hud&&!$id('wzaEmoteBtn')){const b=document.createElement('button');b.id='wzaEmoteBtn';b.type='button';b.setAttribute('aria-label','Open emotes');b.textContent='☺';hud.appendChild(b);b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();toggleWheel();});}
  }
  function addGyroSettings(){
@@ -6840,28 +6805,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   // same facing as remote players: root yaw = look yaw + PI, plus the model's own base rotation
   w.group.rotation.y=player.yaw+Math.PI+((localAnimTpl&&localAnimTpl.def&&localAnimTpl.def.rot)||0);
  }
- // Keep the local player mesh visible in TPP (the old camera only moved behind
- // the player; it never enabled the avatar, so TPP looked like FPP with a wider view).
- window.wzaSyncCameraAvatar=function(){
-  if(wzaCameraMode==='tpp'){
-   if(typeof state!=='undefined'&&state!=='playing')return;
-   ensureAvatar().then(ok=>{
-    if(!ok||!localAnimAvatar||wzaCameraMode!=='tpp')return;
-    const w=localAnimAvatar;
-    placeLocalAvatar();
-    w.group.visible=true;
-    if(!emoteBusy&&!proneOn){try{wzSet(w,'idle',1);}catch(_){}}
-   });
-  }else if(localAnimAvatar&&!proneOn&&!emoteBusy){
-   localAnimAvatar.group.visible=false;
-  }
- };
- function syncLocalAvatar(dt){
-  if(!localAnimAvatar)return;
-  const showForView=wzaCameraMode==='tpp'||proneOn||emoteBusy;
-  if(localAnimAvatar.group.visible!==showForView)localAnimAvatar.group.visible=showForView;
-  if(showForView){placeLocalAvatar();if(localAnimMixer)localAnimMixer.update(dt);}
- }
+ function syncLocalAvatar(dt){if(localAnimAvatar&&localAnimAvatar.group.visible){placeLocalAvatar();if(localAnimMixer)localAnimMixer.update(dt);}}
  // FBX clip -> this character's skeleton (cached per character). wzBake reads wzAnim.clips[key], so it is registered only for the bake.
  function getAdapted(tpl,key){
   const clip=loadedClips[key];if(!clip||!tpl)return null;
@@ -6992,11 +6936,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
  document.addEventListener('pointerdown',e=>{if(wheel&&wheel.classList.contains('open')&&!e.target.closest('#wzaEmoteWheel')&&!e.target.closest('#wzaEmoteBtn')&&!e.target.closest('#wzaEmoteBtnTc'))closeWheel();},true);
  document.addEventListener('keydown',e=>{
   if(e.repeat||e.target.closest('input,textarea,select,button'))return;
-  if(wheel&&wheel.classList.contains('open')){
-   if(e.code===binds.emoteSelect){e.preventDefault();e.stopPropagation();playEmote(selectedEmote);return;}
-   if(e.code===binds.emotePrev){e.preventDefault();e.stopPropagation();cycleEmote(-1);return;}
-   if(e.code===binds.emoteNext){e.preventDefault();e.stopPropagation();cycleEmote(1);return;}
-  }
+  if(wheel&&wheel.classList.contains('open')&&e.code==='Enter'){e.preventDefault();e.stopPropagation();playEmote(selectedEmote);return;}
   if(e.code===binds.prone&&typeof state!=='undefined'&&state==='playing'){e.preventDefault();toggleProne();}
   if(e.code===binds.emote&&typeof state!=='undefined'&&state==='playing'){e.preventDefault();toggleWheel();}
   if(e.code==='Escape')closeWheel();
