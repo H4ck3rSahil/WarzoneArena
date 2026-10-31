@@ -910,9 +910,12 @@ const WZ_ANIM_FILES = { idle: "Idle.fbx", run: "Running.fbx", jump: "jumping.fbx
 const WZ_CHARS = [];
 const WZ_NAMES = ["KELLY", "TUNG TUNG SAHUR", "FREESTYLE", "KRATOS", "CARL JOHNSON", "SCORPION", "IRON MAN", "MADARA UCHIHA", "MINATO NAMIKAZE", "OBITO UCHIHA"];
 for (let i = 1; i <= 10; i++) WZ_CHARS.push({ name: WZ_NAMES[i - 1], file: "models/groom" + i + ".glb", rot: 0, scale: 1, p: null });
+// Selectable default player: use the same bot GLB already used by the game's enemy system.
+// It is a real GLB character (not a fake debug entry) and is also used by the gameplay avatar pipeline.
+WZ_CHARS.push({ name: "DEFAULT BOT", file: "models/enemie1.glb", rot: 0, scale: 1, p: null, isDefaultBot: true });
+const WZ_FIRST_ENEMY = 11; // indices 0..10 are selectable; enemy NPC models begin at 11
 for (let i = 1; i <= 3; i++) WZ_CHARS.push({ name: "ENEMY " + i, file: "models/enemie" + i + ".glb", rot: 0, scale: 1, p: null });
 WZ_CHARS[3].bright = 2.0; // groom4 (Kratos) brightness 200%
-const WZ_FIRST_ENEMY = 10;
 let wzMyChar = 1; // default: groom2 (rigged). Menu se badal sakte ho.
 try { const v = parseInt(localStorage.getItem("wzaChar"), 10); if (v >= 0 && v < WZ_FIRST_ENEMY) wzMyChar = v; } catch (e) {}
 
@@ -1180,7 +1183,7 @@ function wzBuildTpl(def, gltf) {
   const h = size.y > 1e-6 ? size.y : 1;
   const names = {};
   bones.forEach(b => { names[wzNorm(b.name)] = b.name; });
-  const compat = !!(names.Hips && names.LeftUpLeg && names.RightUpLeg && names.LeftArm && names.RightArm);
+  const compat = !!(names.Hips && names.LeftUpLeg && names.RightUpLeg && (names.LeftArm || names.LeftUpperArm) && (names.RightArm || names.RightUpperArm));
   const roles = wzCollect(scene), rolesOK = skinned && wzRolesOK(roles);
   const c = box.getCenter(new THREE.Vector3());
   // FACE FIX: model kis taraf muh karke bana hai ye hips/legs ke left-right axis se nikalo, aur use +Z (front) par ghuma do.
@@ -3710,15 +3713,16 @@ let mouseL = false, justPressed = false, swayInX = 0, swayInY = 0, swayX = 0, sw
 let vignetteT = 0, dmgDirT = 0;
 const SWITCH_TIME = 0.4;
 const keys = {};
-const DEFAULT_BINDS = {forward:"KeyW", back:"KeyS", left:"KeyA", right:"KeyD", jump:"Space", reload:"KeyR", sprint:"KeyE", crouch:"KeyC", gloo:"KeyF", medkit:"KeyH", prone:"KeyZ", emote:"ShiftLeft", weapon1:"Digit1", weapon2:"Digit2", weapon3:"Digit3", weapon4:"Digit4"};
+const DEFAULT_BINDS = {forward:"KeyW", back:"KeyS", left:"KeyA", right:"KeyD", jump:"Space", reload:"KeyR", sprint:"KeyE", crouch:"KeyC", gloo:"KeyF", medkit:"KeyH", prone:"KeyZ", emote:"ShiftLeft", weapon1:"Digit1", weapon2:"Digit2", weapon3:"Digit3", weapon4:"Digit4", fire:"Mouse0", scope:"Mouse2", tpp:"KeyT", interact:"KeyV", pause:"KeyP"};
 const binds = {...DEFAULT_BINDS};
 try { const sv = JSON.parse(localStorage.getItem("wzaBinds") || "{}"); Object.keys(DEFAULT_BINDS).forEach(k => { if (typeof sv[k] === "string" && sv[k]) binds[k] = sv[k]; }); } catch (e) {}
 // Migrate the previous default emote key (B) to Left Shift; keep any other custom binding.
 if (binds.emote === "KeyB") { binds.emote = "ShiftLeft"; try { localStorage.setItem("wzaBinds", JSON.stringify(binds)); } catch (_) {} }
 let waitingBind = null;
-const bindLabels = {forward:"Move forward",back:"Move backward",left:"Move left",right:"Move right",jump:"Jump",reload:"Reload",sprint:"Sprint toggle",crouch:"Crouch",gloo:"Place Gloo Wall",medkit:"Use Medkit",prone:"Prone",emote:"Emote wheel",weapon1:"Select AK-47",weapon2:"Select AWM",weapon3:"Select MP5-SMG",weapon4:"Select Pistol"};
-function keyName(code){return ({Space:"SPACE",ShiftLeft:"LEFT SHIFT",ShiftRight:"RIGHT SHIFT",ControlLeft:"LEFT CTRL",AltLeft:"LEFT ALT"})[code] || (code.startsWith("Key")?code.slice(3):code.startsWith("Digit")?code.slice(5):code.toUpperCase());}
-function renderKeyRows(){const host=$("keyRows"); if(!host)return; host.innerHTML=""; Object.keys(binds).forEach(action=>{const row=document.createElement("div");row.className="keyrow";const label=document.createElement("span");label.textContent=bindLabels[action];const btn=document.createElement("button");btn.type="button";btn.textContent=(waitingBind===action?"PRESS KEY…":keyName(binds[action]));btn.addEventListener("click",()=>{waitingBind=action;renderKeyRows();});row.append(label,btn);host.appendChild(row);});}
+const bindLabels = {forward:"Move forward",back:"Move backward",left:"Move left",right:"Move right",jump:"Jump",reload:"Reload",sprint:"Sprint toggle",crouch:"Crouch",gloo:"Place Gloo Wall",medkit:"Use Medkit",prone:"Prone",emote:"Emote wheel",weapon1:"Select AK-47",weapon2:"Select AWM",weapon3:"Select MP5-SMG",weapon4:"Select Pistol",fire:"Fire",scope:"Aim / Scope",tpp:"FPP / TPP view",interact:"Interact (shop / door)",pause:"Pause"};
+function keyName(code){if(code&&code.indexOf("Mouse")===0){const n=+code.slice(5);return ["MOUSE LEFT","MOUSE MIDDLE","MOUSE RIGHT","MOUSE 4","MOUSE 5"][n]||("MOUSE "+n);}return ({Space:"SPACE",ShiftLeft:"LEFT SHIFT",ShiftRight:"RIGHT SHIFT",ControlLeft:"LEFT CTRL",AltLeft:"LEFT ALT"})[code] || (code.startsWith("Key")?code.slice(3):code.startsWith("Digit")?code.slice(5):code.toUpperCase());}
+function wzSetBind(action,code){const old=binds[action];Object.keys(binds).forEach(k=>{if(k!==action&&binds[k]===code)binds[k]=old;});binds[action]=code;try{localStorage.setItem("wzaBinds",JSON.stringify(binds));}catch(_){}renderKeyRows();}
+function renderKeyRows(){const host=$("keyRows"); if(!host)return; host.innerHTML=""; Object.keys(binds).forEach(action=>{const row=document.createElement("div");row.className="keyrow";const label=document.createElement("span");label.textContent=bindLabels[action];const btn=document.createElement("button");btn.type="button";btn.textContent=(waitingBind===action?"PRESS KEY…":keyName(binds[action]));btn.addEventListener("click",()=>{waitingBind=action;renderKeyRows();});row.append(label,btn);host.appendChild(row);});const rb=document.createElement("button");rb.type="button";rb.textContent="RESET ALL KEYS TO DEFAULT";rb.style.gridColumn="1 / -1";rb.addEventListener("click",()=>{Object.assign(binds,DEFAULT_BINDS);try{localStorage.setItem("wzaBinds",JSON.stringify(binds));}catch(_){}waitingBind=null;renderKeyRows();});host.appendChild(rb);}
 
 const enemies = [], teammates = [], corpses = [], pickups = [], lootboxes = [], parts = [], tracers = [], decals = [];
 const glooWalls = [];
@@ -5213,6 +5217,8 @@ function resetGame(mode) {
   wave = 0; waveBreak = 0; toSpawn = 0; deadT = 0; endKillCam();
   camera.fov = NORMAL_FOV; camera.updateProjectionMatrix();
   camera.rotation.z = 0;
+  // Preserve the selected FPP/TPP view while starting or switching game modes.
+  try { if (window.wzaSyncTppState) window.wzaSyncTppState(); } catch (_) {}
   $("killsNum").textContent = "0";
   if (isTraining()) { stats.kills = wzTr.k; $("killsNum").textContent = String(wzTr.k); }
   $("feed").innerHTML = "";
@@ -5747,7 +5753,7 @@ function openMenuPanel(kind) {
       </section>
       <div id="wzaGyroMount"></div>
       <h3 class="wzaSettingsHeadline" id="wzaKeymapHeadline">KEY MAPPING</h3>
-      <section class="wzaSettingsCard"><p class="wzaSettingsHint">PC CONTROLS · Select a key below, then press the new key.</p><div id="keyRows"></div></section>
+      <section class="wzaSettingsCard"><p class="wzaSettingsHint">PC CONTROLS · Select an action below, then press the new key or click a mouse button (Esc = cancel).</p><div id="keyRows"></div></section>
       <h3 class="wzaSettingsHeadline">FILTER</h3>
       <section class="wzaSettingsCard">
         <div class="wzaFilterTabs"><button id="wzaProfA" type="button">SURVIVAL \u00B7 DEATHMATCH</button><button id="wzaProfB" type="button">CLASH \u00B7 1V1 \u00B7 TRAINING</button></div>
@@ -6075,20 +6081,35 @@ document.addEventListener("mousemove", e => {
   swayInX += dx; swayInY += dy;
 });
 document.addEventListener("mousedown", e => {
+  const mc = "Mouse" + e.button;
+  if (waitingBind && !e.target.closest("#keyRows button")) { e.preventDefault(); e.stopPropagation(); const a = waitingBind; waitingBind = null; wzSetBind(a, mc); return; }
   if (state !== "playing" || e.target.closest("#touchControls")) return;
-  if (e.button === 0) { mouseL = true; justPressed = true; }
-  if (e.button === 2) { adsToggle = !adsToggle; $("scopeBtn").classList.toggle("active", adsToggle); }
+  keys[mc] = true;   // movement / jump bound to a mouse button
+  if (mc === binds.fire) { mouseL = true; justPressed = true; }
+  if (mc === binds.scope) { adsToggle = !adsToggle; $("scopeBtn").classList.toggle("active", adsToggle); }
+  if (mc === binds.reload) startReload();
+  if (mc === binds.gloo) placeGlooWall();
+  if (mc === binds.medkit) useMedkit();
+  if (mc === binds.sprint) { sprintToggle = !sprintToggle; $("sprintBtn").classList.toggle("active", sprintToggle); $("sprintBtn").textContent = sprintToggle ? "SPRINT ON" : "SPRINT"; }
+  if (mc === binds.crouch) { crouchToggle = !crouchToggle; $("crouchBtn").classList.toggle("active", crouchToggle); }
+  if (mc === binds.weapon1) setWeapon(0);
+  if (mc === binds.weapon2) setWeapon(1);
+  if (mc === binds.weapon3) setWeapon(2);
+  if (mc === binds.weapon4) setWeapon(3);
+  if (mc === binds.interact) { if (!interactTrainingShop()) interactClashDoor(); }
+  if (mc === binds.tpp && typeof window.wzaToggleTpp === "function") window.wzaToggleTpp();
+  if (e.button > 2) e.preventDefault();
 });
-document.addEventListener("mouseup", e => { if (e.button === 0) mouseL = false; });
+document.addEventListener("mouseup", e => { const mc = "Mouse" + e.button; keys[mc] = false; if (mc === binds.fire) mouseL = false; });
 document.addEventListener("contextmenu", e => e.preventDefault());
 document.addEventListener("wheel", e => {
   if (state !== "playing") return;
   setWeapon((curIdx + (e.deltaY > 0 ? 1 : W.length - 1)) % W.length);
 });
 document.addEventListener("keydown", e => {
-  if (waitingBind) { e.preventDefault(); e.stopPropagation(); binds[waitingBind] = e.code; waitingBind = null; try { localStorage.setItem("wzaBinds", JSON.stringify(binds)); } catch (_) {} renderKeyRows(); return; }
+  if (waitingBind) { e.preventDefault(); e.stopPropagation(); const a = waitingBind; waitingBind = null; if (e.code === "Escape") { renderKeyRows(); return; } wzSetBind(a, e.code); return; }
   if (e.code === "Space" || e.code === "Tab") e.preventDefault();
-  if (e.code === "Escape" || e.code === "KeyP") {
+  if (e.code === "Escape" || e.code === binds.pause) {
     e.preventDefault();
     if (e.repeat) return;
     if (state === "playing") pauseGame();
@@ -6097,7 +6118,9 @@ document.addEventListener("keydown", e => {
   }
   keys[e.code] = true; keys.Shift = e.shiftKey;
   if (state !== "playing") return;
-  if (e.code === "KeyV" && !e.repeat) { if (!interactTrainingShop()) interactClashDoor(); }
+  if (e.code === binds.interact && !e.repeat) { if (!interactTrainingShop()) interactClashDoor(); }
+  if (binds.fire.indexOf("Mouse") !== 0 && e.code === binds.fire && !e.repeat) { mouseL = true; justPressed = true; }
+  if (binds.scope.indexOf("Mouse") !== 0 && e.code === binds.scope && !e.repeat) { adsToggle = !adsToggle; $("scopeBtn").classList.toggle("active", adsToggle); }
   if (e.code === binds.reload) startReload();
   if (e.code === binds.gloo && !e.repeat) placeGlooWall();
   if (e.code === binds.medkit && !e.repeat) useMedkit();
@@ -6108,7 +6131,7 @@ document.addEventListener("keydown", e => {
   if (e.code === binds.weapon3) setWeapon(2);
   if (e.code === binds.weapon4) setWeapon(3);
 });
-document.addEventListener("keyup", e => { keys[e.code] = false; keys.Shift = e.shiftKey; });
+document.addEventListener("keyup", e => { keys[e.code] = false; keys.Shift = e.shiftKey; if (e.code === binds.fire) mouseL = false; });
 
 function autoFitTouchControls(){
   const shortSide = Math.min(window.innerWidth || 1, window.innerHeight || 1);
@@ -6858,7 +6881,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   // Reject tiny sensor jitter and smooth the remaining motion to prevent aim flicker.
   if(Math.abs(turn)<0.28)turn=0;
   if(Math.abs(look)<0.28)look=0;
-  const aimScale=activeAim()?0.65:1;
+  const aimScale=activeAim()?0.52:1;
   const fxs=gyroAxisFactor(gyroSmU>=0?gyroAxes.r:gyroAxes.l)*aimScale, fys=gyroAxisFactor(gyroSmR>=0?gyroAxes.u:gyroAxes.d)*aimScale;   // turn>0 = RIGHT, look>0 = UP
   gyroSmU=gyroSmU*0.52+turn*0.48;
   gyroSmR=gyroSmR*0.52+look*0.48;
@@ -7065,6 +7088,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
  try{tppOn=localStorage.getItem('wzaTpp')==='1';}catch(_){}
  const _tppDir=new THREE.Vector3(),_tppRight=new THREE.Vector3(),_tppUp=new THREE.Vector3(0,1,0);
  function tppSetBtn(){const b=$id('wzaTppBtn');if(b)b.textContent=tppOn?'TPP':'FPP';}
+ window.wzaSyncTppState=tppSetBtn;
  function toggleTpp(force){
   tppOn=force===undefined?!tppOn:!!force;
   try{localStorage.setItem('wzaTpp',tppOn?'1':'0');}catch(_){}
@@ -7078,6 +7102,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   const w=localAnimAvatar;tppDrive=false;
   const playing=typeof state!=='undefined'&&state==='playing'&&player.hp>0;
   if(!tppOn||!playing||activeAim()){   // FPP, ya TPP me aim (ADS/scope) karte waqt FPP view
+   if(camera.fov!==NORMAL_FOV){camera.fov=NORMAL_FOV;camera.updateProjectionMatrix();} tppZoom=0;
    if(w&&!proneOn&&!emoteBusy&&w.group.visible)w.group.visible=false;
    if(tppBox&&tppBox.root.visible)tppBox.root.visible=false;
    _tppPx=player.pos.x;_tppPz=player.pos.z;
@@ -7113,14 +7138,14 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   // fire karte waqt camera shoulder ke paas zoom hota hai (BGMI jaisa), warna thoda peeche + right shoulder par
   const firing=!!((typeof mouseL!=='undefined'&&mouseL)||(typeof mobileFire!=='undefined'&&mobileFire));
   tppZoom+=((firing?1:0)-tppZoom)*Math.min(1,dt*9);
-  const dist=(1.7-1.3*tppZoom)*S, side=(0.42+0.1*tppZoom)*S;
+  const dist=(2.25-0.65*tppZoom)*S, side=(0.34+0.05*tppZoom)*S;
   camera.position.addScaledVector(_tppDir,-dist).addScaledVector(_tppRight,side);
-  camera.position.y+=0.1*S;
-  if(tppZoom>0.01){camera.fov=Math.max(28,camera.fov-16*tppZoom);camera.updateProjectionMatrix();}
+  camera.position.y-=0.08*S;
+  if(tppZoom>0.01){camera.fov=Math.max(30,camera.fov-11*tppZoom);camera.updateProjectionMatrix();}
   return true;
  }
  {const _emoteCamOrig=window.wzaEmoteCam;window.wzaEmoteCam=function(){return _emoteCamOrig()?true:tppCam();};}
- document.addEventListener('keydown',e=>{if(e.code==='KeyT'&&!e.repeat&&typeof state!=='undefined'&&state==='playing'){e.preventDefault();toggleTpp();}});
+ document.addEventListener('keydown',e=>{if(e.code===binds.tpp&&!e.repeat&&typeof state!=='undefined'&&state==='playing'){e.preventDefault();toggleTpp();}});
  function playEmote(n){
   closeWheel();if(typeof state==='undefined'||state!=='playing')return;
   if(emoteBusy){toastMsg('PLEASE WAIT');return;}
