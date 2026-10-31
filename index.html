@@ -3813,7 +3813,30 @@ function addTracer(a, b, mat) {
 }
 
 let bannerTO;
+let wzCdTimers = [], wzCdActive = false, wzBannerAt = 0;
+function wzHideBanner() {
+  wzCdTimers.forEach(clearTimeout); wzCdTimers = []; wzCdActive = false;
+  const b = $("bigmsg"); if (b) { b.classList.remove("show"); b.classList.remove("pvp-start-banner"); b.style.color = ""; }
+  clearTimeout(bannerTO);
+}
+// Maut ke baad: "YOU WERE ELIMINATED - REVIVE IN 3 / 2 / 1", phir band (bot ka POV isi dauran dikhta hai)
+function wzDeathCountdown(n) {
+  wzHideBanner(); wzCdActive = true;
+  const b = $("bigmsg");
+  const put = k => { b.classList.remove("pvp-start-banner"); b.style.color = ""; b.innerHTML = "YOU WERE ELIMINATED<small>REVIVE IN " + k + "</small>"; b.classList.add("show"); };
+  put(n);
+  for (let k = n - 1; k >= 1; k--) wzCdTimers.push(setTimeout(() => put(k), (n - k) * 1000));
+  wzCdTimers.push(setTimeout(wzHideBanner, n * 1000));
+}
+// Koi bhi banner ek baar aane ke baad ~5s me zaroor hat jaye (atakta nahi)
+setInterval(() => {
+  const b = $("bigmsg"); if (!b || wzCdActive || !b.classList.contains("show")) return;
+  if (typeof pvpFinalSoundPlayed !== "undefined" && pvpFinalSoundPlayed) return;
+  if (performance.now() - wzBannerAt > 5500) b.classList.remove("show");
+}, 500);
 function banner(t, sub) {
+  if (wzCdActive && String(t).indexOf("ELIMINATED") < 0) return;   // countdown ke beech me doosra banner nahi
+  wzBannerAt = performance.now();
   const b = $("bigmsg");
   b.innerHTML = t + (sub ? "<small>" + sub + "</small>" : "");
   b.classList.add("show");
@@ -4258,7 +4281,7 @@ function spawnEnemy(forcedX, forcedZ) {
     root: m.root, legL: m.legL, legR: m.legR, armL: m.armL, armR: m.armR, mats: m.mats, flash: m.flash,
     bar, fill, hp, maxHp: hp, scale, heavy, groundY: spawnY,
     speed: (heavy ? 2.0 : 2.6 + rand(0, 0.5)) + (gameMode === "survival" ? Math.min(wave * 0.12, 1.4) : 0),
-    dmg: isTraining() ? 50 : 1.4 * ((gameMode === "tdm" || gameMode === "clash") ? 9 : ((7 + Math.min(wave, 8) * 0.6) * (heavy ? 1.3 : 1))), // Training HARD: two clean hits knock down
+    dmg: isTraining() ? 20 : 1.4 * ((gameMode === "tdm" || gameMode === "clash") ? 9 : ((7 + Math.min(wave, 8) * 0.6) * (heavy ? 1.3 : 1))), // Training: bot ki 5 goli lagne par player marta hai (5 x 20 = 100 HP)
     prefer: rand(14, 22), range: 38,
     name: CALLSIGNS[Math.floor(Math.random() * CALLSIGNS.length)] + "-" + Math.floor(rand(10, 99)),
     walkT: rand(0, 6), amp: 0, aim: 0, fireT: isTraining() ? rand(0.55, 0.9) : rand(1.0, 2.0),
@@ -5404,10 +5427,10 @@ function playTrainingDeathAndRevive() {
     state = "playing"; tdmState = "active"; trShield = 3.0;
     document.body.classList.add("game-playing");
     const hud = $("hud"); if (hud) hud.classList.add("on");
-    setTimeout(() => { const b=$("banner"); if (b) b.classList.remove("on"); }, 1200);
+    wzHideBanner();
   };
-  // Keep the full five-second spectate even if the optional death audio ends earlier.
-  setTimeout(revive, 5000);
+  // 3-2-1 countdown ke baad revive (death audio chhota ho to bhi poora 3 sec bot POV chalta hai)
+  setTimeout(revive, 3000);
   trainingDeathsWithoutKill += 1;
   const playSound = trainingDeathsWithoutKill >= 3;
   if (playSound) trainingDeathsWithoutKill = 0;
@@ -5433,7 +5456,7 @@ function die(by) {
     if (kp && kp.soldier) startKillCam(killerRoot, () => { const u = kp.soldier.userData; return { yaw: kp.soldier.root.rotation.y + Math.PI, pitch: Number(u && u.netPitch) || 0 }; });
     else if (killerRoot) startKillCam(killerRoot, null);
     if (killerRoot) {
-      if (killCam) killCam.until = performance.now() + 5000;
+      if (killCam) killCam.until = performance.now() + 3000;   // 3 sec bot ka POV
       try { if (window.wzaPlayRemoteEmote) window.wzaPlayRemoteEmote(killerRoot, 1 + Math.floor(Math.random() * 6)); } catch (_) {}
     }
   }
@@ -5443,7 +5466,7 @@ function die(by) {
   if (isTraining()) {
     wzTrDeath();
     // Training deaths play the requested MP3, then automatically revive at the training spawn.
-    banner("YOU WERE ELIMINATED", "REVIVING…");
+    wzDeathCountdown(3);
     playTrainingDeathAndRevive();
     return;
   }
@@ -7353,7 +7376,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   // fire karte waqt camera shoulder ke paas zoom hota hai (BGMI jaisa), warna thoda peeche + right shoulder par
   const firing=!!((typeof mouseL!=='undefined'&&mouseL)||(typeof mobileFire!=='undefined'&&mobileFire));
   tppZoom+=((firing?1:0)-tppZoom)*Math.min(1,dt*9);
-  const dist=(2.25-0.65*tppZoom)*S, side=(0.34+0.05*tppZoom)*S;
+  const dist=(1.75-0.5*tppZoom)*S, side=(0.38+0.06*tppZoom)*S;
   camera.position.addScaledVector(_tppDir,-dist).addScaledVector(_tppRight,side);
   camera.position.y-=0.08*S;
   if(tppZoom>0.01){camera.fov=Math.max(30,camera.fov-11*tppZoom);camera.updateProjectionMatrix();}
