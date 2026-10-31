@@ -912,7 +912,7 @@ const WZ_NAMES = ["KELLY", "TUNG TUNG SAHUR", "FREESTYLE", "KRATOS", "CARL JOHNS
 for (let i = 1; i <= 10; i++) WZ_CHARS.push({ name: WZ_NAMES[i - 1], file: "models/groom" + i + ".glb", rot: 0, scale: 1, p: null });
 // Selectable default player: use the same bot GLB already used by the game's enemy system.
 // It is a real GLB character (not a fake debug entry) and is also used by the gameplay avatar pipeline.
-WZ_CHARS.push({ name: "DEFAULT BOT", file: "models/enemie1.glb", rot: 0, scale: 1, p: null, isDefaultBot: true });
+WZ_CHARS.push({ name: "DEFAULT BOT", file: null, rot: 0, scale: 1, p: null, isDefaultBot: true, isBlueSoldier: true });
 const WZ_FIRST_ENEMY = 11; // indices 0..10 are selectable; enemy NPC models begin at 11
 for (let i = 1; i <= 3; i++) WZ_CHARS.push({ name: "ENEMY " + i, file: "models/enemie" + i + ".glb", rot: 0, scale: 1, p: null });
 WZ_CHARS[3].bright = 2.0; // groom4 (Kratos) brightness 200%
@@ -1352,11 +1352,24 @@ function wzRevive(root) {
   w.dead = false; w.hold = 0;
   if (w.mixer) { if (w.act.death) w.act.death.stop(); w.cur = ""; wzSet(w, "idle", 1); }
 }
+// The default selectable character is the same built-in blue-team soldier used in PVP.
+function wzApplyBlueSoldier(soldier) {
+  const root = soldier.root, ud = root.userData;
+  if (ud.wz) { root.remove(ud.wz.group); try { if (ud.wz.mixer) ud.wz.mixer.stopAllAction(); } catch (_) {} ud.wz = null; }
+  (soldier.mats || []).forEach((m, i) => {
+    m.visible = true;
+    if ([0, 10, 12].includes(i)) m.color.setHex(0x2f5ba8);
+    else if ([1, 4].includes(i)) m.color.setHex(0x15254a);
+    else if ([6, 8].includes(i)) m.color.setHex(0x1d3a70);
+  });
+  if (soldier.flash) soldier.flash.visible = false;
+}
 // soldier (buildSoldier ka result) par model chadhao. Model na mile to purana soldier dikhta rahega.
 function wzDress(soldier, idx) {
   const root = soldier.root, ud = root.userData;
   if (ud.wzIdx === idx) return;
   ud.wzIdx = idx;
+  if (WZ_CHARS[idx] && WZ_CHARS[idx].isBlueSoldier) { wzApplyBlueSoldier(soldier); return; }
   Promise.all([wzLoadChar(idx), wzAnim.ready]).then(async r => {
     let tpl = r[0];
     if (!tpl && idx < WZ_FIRST_ENEMY) {   // chuni hui groom ki .glb nahi mili -> pehli available groom
@@ -1408,7 +1421,7 @@ function wzOpenGrooming() {
   menuSubPanel.classList.add("on");
   try { wzPlaceSidePanel(); } catch (e) {}
   const cv = $("wzGrCv");
-  let rend = null, alive = true, cur = null, token = 0, idx = wzMyChar, last = performance.now();
+  let rend = null, alive = true, cur = null, previewBot = null, token = 0, idx = wzMyChar, last = performance.now();
   try { rend = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true }); }
   catch (e) { console.error("[WZ] Preview renderer fail", e);  }
   const sc = new THREE.Scene();
@@ -1426,6 +1439,14 @@ function wzOpenGrooming() {
     label();
     
     if (cur) { pivot.remove(cur.group); if (cur.mixer) cur.mixer.stopAllAction(); cur = null; }
+    if (previewBot) { pivot.remove(previewBot.root); previewBot = null; }
+    if (WZ_CHARS[idx] && WZ_CHARS[idx].isBlueSoldier) {
+      previewBot = buildSoldier(1, false, true);
+      wzApplyBlueSoldier(previewBot);
+      pivot.add(previewBot.root);
+      if (status) status.textContent = "PVP BLUE TEAM SOLDIER";
+      return;
+    }
     if (status) status.textContent = "LOADING...";
     Promise.all([wzLoadChar(idx), wzAnim.ready]).then(r => {
       if (!alive || my !== token) return;
@@ -1460,6 +1481,13 @@ function wzOpenGrooming() {
     }
     pivot.rotation.y += dt * 0.7;
     if (cur) wzStep(cur, dt, false, 0, false);
+    if (previewBot) {
+      const t = now * 0.001;
+      previewBot.legL.rotation.x = Math.sin(t * 2.2) * 0.035;
+      previewBot.legR.rotation.x = -previewBot.legL.rotation.x;
+      previewBot.armL.rotation.x = -0.08 + Math.sin(t * 2.2 + 1) * 0.025;
+      previewBot.armR.rotation.x = -0.12 + Math.sin(t * 2.2) * 0.025;
+    }
     if (rend) rend.render(sc, cam);
     requestAnimationFrame(loop);
   };
@@ -7075,12 +7103,24 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
  function cancelEmote(){endEmote(true);}
  // Third-person camera in front of your character while it emotes, so you can see your own emote.
  window.wzaEmoteCam=function(){
-  if(!emoteBusy||!localAnimAvatar||!localAnimAvatar.group.visible)return false;
+  // Emote view must override BOTH FPP and TPP camera placement. Keep the full local
+  // avatar visible and frame it from the front; otherwise TPP shoulder-camera can
+  // leave the character behind/inside the camera while the FBX action is playing.
+  if(!emoteBusy||!localAnimAvatar)return false;
   if(typeof state==='undefined'||state!=='playing'||player.hp<=0){cancelEmote();return false;}
-  const S=avatarScale(),yaw=player.yaw,dist=3.4*S;   // emote camera distance (pehle 2.7): thoda aage, taaki head ke andar na dikhe
-  camera.position.set(player.pos.x-Math.sin(yaw)*dist,player.pos.y+1.28*S,player.pos.z-Math.cos(yaw)*dist);
-  camera.rotation.set(-0.08,yaw+Math.PI,0);
+  // TPP normally advances the avatar mixer inside wzStep() and sets tppDrive=true.
+  // While the emote camera overrides tppCam(), wzStep() is skipped, so release that
+  // flag here; syncLocalAvatar(dt) must advance the FBX emote mixer every frame.
+  tppDrive=false;
+  const w=localAnimAvatar,S=avatarScale(),yaw=player.yaw,dist=3.8*S;
+  if(!w.group.visible)w.group.visible=true;
+  w.group.scale.setScalar(S);
+  w.group.position.set(player.pos.x,player.pos.y,player.pos.z);
+  w.group.rotation.y=yaw+Math.PI+((localAnimTpl&&localAnimTpl.def&&localAnimTpl.def.rot)||0)+((localAnimTpl&&localAnimTpl.faceFix)||0);
+  camera.position.set(player.pos.x-Math.sin(yaw)*dist,player.pos.y+1.35*S,player.pos.z-Math.cos(yaw)*dist);
+  camera.lookAt(player.pos.x,player.pos.y+1.0*S,player.pos.z);
   if(typeof NORMAL_FOV!=='undefined'&&camera.fov!==NORMAL_FOV){camera.fov=NORMAL_FOV;camera.updateProjectionMatrix();}
+  camera.updateMatrixWorld(true);
   return true;
  };
  // ===== FPP / TPP toggle (BGMI style) - saare game modes =====
@@ -7157,7 +7197,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
    if(!loadedClips[key]){emoteBusy=false;toastMsg('EMOTE FILE MISSING: models/'+key+'.fbx');return;}
    const a=localAction(key);
    if(!a||!localAnimAvatar.mixer){emoteBusy=false;toastMsg('EMOTE NOT SUPPORTED FOR THIS CHARACTER');return;}
-   const w=localAnimAvatar;placeLocalAvatar();w.group.visible=true;playOn(w,key,a);
+   const w=localAnimAvatar;placeLocalAvatar();w.group.visible=true;if(tppOn){w.group.position.set(player.pos.x,player.pos.y,player.pos.z);}playOn(w,key,a);
    broadcastEmote(n);
    clearTimeout(emoteEndTimer);
    emoteEndTimer=setTimeout(()=>endEmote(false),Math.max(900,(loadedClips[key].duration||2.2)*1000)+150);
