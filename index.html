@@ -1466,7 +1466,12 @@ function wzOpenGrooming() {
     wzMyChar = idx; try { localStorage.setItem("wzaChar", String(idx)); } catch (_) {}
     label();
     wzToast(WZ_CHARS[idx].name + " SELECTED");
-    setTimeout(() => { if (!alive) return; stop(); closeMenuPanel(); }, 450);
+    const selectedName=WZ_CHARS[idx].name;
+    Promise.resolve().then(()=>typeof window.wzaRefreshAvatar==='function'?window.wzaRefreshAvatar():false).then(ok=>{
+      if(!alive)return;
+      if(!ok)wzToast(selectedName+" SAVED — MODEL WILL LOAD WHEN READY",2200);
+      stop();closeMenuPanel();
+    }).catch(err=>{console.warn('[WZ] selected avatar refresh failed',err);if(alive){stop();closeMenuPanel();}});
   };
   $("wzGrBack").onclick = e => { e.preventDefault(); e.stopPropagation(); stop(); closeMenuPanel(); };
   const loop = () => {
@@ -3188,7 +3193,7 @@ function pvpEnsureRemote(){
  // Fixed team identity: host is always red, joiner always blue.
  const teamColor = pvpRole === 'host' ? [0x168bff,0x1556a8,0x10376d] : [0xe52e2e,0x9d1717,0x641010];
  let mi=0; soldier.mats.forEach((mat)=>{mat.color.setHex(teamColor[Math.min(mi++,2)]);});
- soldier.userData={netMoving:false,netPitch:0,netSnapshots:[]}; pvpRemote=soldier; soldier.root.traverse(o=>{if(o.isMesh){o.userData.pvpHit=true;}}); scene.add(soldier.root);
+ soldier.userData={netMoving:false,netPitch:0,netSnapshots:[]}; soldier.root.userData.wzaParts={legL:soldier.legL,legR:soldier.legR,armL:soldier.armL,armR:soldier.armR}; pvpRemote=soldier; soldier.root.traverse(o=>{if(o.isMesh){o.userData.pvpHit=true;}}); scene.add(soldier.root);
 }
 function pvpClean(){
   clearInterval(pvpRoundTimer); pvpRoundTimer=null; pvpRoundPhase="idle"; pvpRoundToken++; pvpFinalShown=false; pvpFinalToken++; try{pvpStopResultSounds();}catch(_){}
@@ -3272,7 +3277,7 @@ function trApplyPos(id,x,y,z,yaw,pitch,moving,ch,crouch,wp){if(id===trMyId||!trS
 function trFlushPos(){if(trRole!=='host'||!trConns.size)return;const all=[];trPosCache.forEach((m,id)=>{all.push([id,+Number(m.x).toFixed(2),+Number(m.y).toFixed(2),+Number(m.z).toFixed(2),+Number(m.yaw).toFixed(2),+Number(m.pitch).toFixed(2),m.moving?1:0,(m.ch===undefined?-1:m.ch),m.cr?1:0,(m.wp===undefined?-1:m.wp)]);});if(!all.length)return;const sq=++trSeqOut;trConns.forEach((c,cid)=>{const arr=all.filter(a=>a[0]!==cid);if(arr.length)trSendFast(c,{t:'tr_all',sq:sq,p:arr});});}
 function trLabelSprite(name){const cv=document.createElement('canvas');cv.width=256;cv.height=64;const g=cv.getContext('2d');g.font='bold 34px Arial';g.textAlign='center';g.lineWidth=6;g.strokeStyle='rgba(0,0,0,.85)';g.strokeText(name,128,44);g.fillStyle='#fff';g.fillText(name,128,44);const tex=new THREE.CanvasTexture(cv);const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));sp.material.fog=false;sp.scale.set(2.2,0.55,1);sp.position.y=2.35;sp.renderOrder=999;sp.frustumCulled=false;sp.raycast=function(){};const _lv=new THREE.Vector3();sp.onBeforeRender=function(r,sc,cam){try{this.getWorldPosition(_lv);const d=cam.position.distanceTo(_lv);const ws=(this.parent&&this.parent.scale.x)||1;const base=0.55*ws;const f=Math.max(1,(d*0.035)/base);this.scale.set(2.2*f,0.55*f,1);}catch(e){}};return sp;}
 function trGetPlayer(id,name){let p=trPlayers.get(id);if(!p){p={id:id,name:String(name||'PLAYER').slice(0,18),soldier:null,hp:100,dead:false,deadAt:0,init:false,moving:false};trPlayers.set(id,p);}else if(name)p.name=String(name).slice(0,18);return p;}
-function trEnsureSoldier(p){if(p.soldier)return p.soldier;const s=buildSoldier(1,false,false);const col=TR_COLORS[(trPlayers.size+p.id.length*3+(parseInt(String(p.id).replace(/\D/g,''))||0))%TR_COLORS.length];let mi=0;p.colorHex=col[0];s.mats.forEach(mat=>{mat.color.setHex(col[Math.min(mi++,2)]);});s.root.scale.setScalar(TRAIN_CHAR_SCALE);s.root.traverse(o=>{if(o.isMesh)o.userData.trId=p.id;});s.root.userData.trId=p.id;s.root.add(trLabelSprite(p.name));s.userData={netMoving:false,netPitch:0};p.soldier=s;scene.add(s.root);return s;}
+function trEnsureSoldier(p){if(p.soldier)return p.soldier;const s=buildSoldier(1,false,false);const col=TR_COLORS[(trPlayers.size+p.id.length*3+(parseInt(String(p.id).replace(/\D/g,''))||0))%TR_COLORS.length];let mi=0;p.colorHex=col[0];s.mats.forEach(mat=>{mat.color.setHex(col[Math.min(mi++,2)]);});s.root.scale.setScalar(TRAIN_CHAR_SCALE);s.root.traverse(o=>{if(o.isMesh)o.userData.trId=p.id;});s.root.userData.trId=p.id;s.root.add(trLabelSprite(p.name));s.userData={netMoving:false,netPitch:0};s.root.userData.wzaParts={legL:s.legL,legR:s.legR,armL:s.armL,armR:s.armR};s.root.userData.wzIdx=10;p.soldier=s;scene.add(s.root);return s;}
 function trRemovePlayer(id){const p=trPlayers.get(id);if(!p)return;if(p.soldier){scene.remove(p.soldier.root);}trPlayers.delete(id);}
 function trShowNotice(name,txt){let el=document.getElementById('trainingJoinNotice');if(!el){el=document.createElement('div');el.id='trainingJoinNotice';el.style.cssText='position:fixed;right:12px;top:74px;z-index:50000;background:rgba(8,18,28,.92);border:1px solid #28e5ff;color:#fff;border-radius:10px;padding:10px 14px;font:700 13px Arial;max-width:75vw;box-shadow:0 4px 18px #0008';document.body.appendChild(el);}el.textContent=String(name||'PLAYER')+(txt||' joined Training!');el.style.display='block';clearTimeout(trNoticeTimer);trNoticeTimer=setTimeout(()=>{el.style.display='none';},4500);}
 async function trStartLocal(){
@@ -4230,6 +4235,9 @@ function spawnEnemy(forcedX, forcedZ) {
   const m = buildSoldier(trainChar ? 1 : scale, heavy, false);
   m.root.userData.modelName = "fallback-soldier";
   wzDressEnemy(m);
+  // Expose bot limbs to the shared procedural emote system during killer spectate.
+  m.root.userData.wzaParts = { legL: m.legL, legR: m.legR, armL: m.armL, armR: m.armR };
+  m.root.userData.wzIdx = 10;
   if (trainChar) m.root.scale.setScalar(scale); else m.root.scale.multiplyScalar(scale);
   m.root.position.set(x, spawnY, z);
   scene.add(m.root);
@@ -4245,14 +4253,17 @@ function spawnEnemy(forcedX, forcedZ) {
     root: m.root, legL: m.legL, legR: m.legR, armL: m.armL, armR: m.armR, mats: m.mats, flash: m.flash,
     bar, fill, hp, maxHp: hp, scale, heavy, groundY: spawnY,
     speed: (heavy ? 2.0 : 2.6 + rand(0, 0.5)) + (gameMode === "survival" ? Math.min(wave * 0.12, 1.4) : 0),
-    dmg: 1.4 * ((gameMode === "tdm" || gameMode === "clash") ? 9 : ((7 + Math.min(wave, 8) * 0.6) * (heavy ? 1.3 : 1))), // +40% bot damage
+    dmg: isTraining() ? 50 : 1.4 * ((gameMode === "tdm" || gameMode === "clash") ? 9 : ((7 + Math.min(wave, 8) * 0.6) * (heavy ? 1.3 : 1))), // Training HARD: two clean hits knock down
     prefer: rand(14, 22), range: 38,
     name: CALLSIGNS[Math.floor(Math.random() * CALLSIGNS.length)] + "-" + Math.floor(rand(10, 99)),
-    walkT: rand(0, 6), amp: 0, aim: 0, fireT: rand(1.0, 2.0),
+    walkT: rand(0, 6), amp: 0, aim: 0, fireT: isTraining() ? rand(0.55, 0.9) : rand(1.0, 2.0),
     strafe: Math.random() < 0.5 ? -1 : 1, strafeT: rand(1.5, 3.5), stuck: 0, stuckT: 0, lx: x, lz: z,
-    flashT: 0, hurt: 0, dead: false
+    flashT: 0, hurt: 0, dead: false,
+    teamId: trainChar ? (Math.random()<0.5?0:1) : -1,
+    targetScan: rand(0.1,0.8), targetBotId: null,
+    crouchT: 0, ambushT: rand(0.3,1.4)
   };
-  if (trainChar) { e.prefer = rand(5, 9); e.range = 30; e.sx = x; e.sz = z; e.speed *= TRAIN_MOVE; bar.scale.setScalar(0.4); }
+  if (trainChar) { e.prefer = rand(7, 12); e.range = 34; e.sx = x; e.sz = z; e.speed *= TRAIN_MOVE; bar.scale.setScalar(0.4); }
   else if (gameMode === "clash") { e.prefer = rand(8, 14); e.range = 38; e.sx = x; e.sz = z; }
   m.root.userData.enemy = e;
   enemies.push(e);
@@ -4488,13 +4499,28 @@ function shotBlockedByGloo(from, to) {
   return false;
 }
 
+function enemyShootBot(e, target, dist) {
+  if (!isTraining() || !target || target.dead || !enemies.includes(target)) return;
+  e.flashT = 0.06;
+  const ry=e.root.rotation.y;
+  const from=new THREE.Vector3(e.root.position.x+Math.sin(ry)*0.7*e.scale,e.root.position.y+1.25*e.scale,e.root.position.z+Math.cos(ry)*0.7*e.scale);
+  const to=new THREE.Vector3(target.root.position.x,target.root.position.y+1.05*target.scale,target.root.position.z);
+  if(!trainingRayClear(from.x,from.y,from.z,to.x,to.y,to.z)||shotBlockedByGloo(from,to))return;
+  addTracer(from,to,tracerMatE);
+  const hit=Math.random()<clamp(0.72-dist*0.006,0.42,0.72);
+  if(hit)damageEnemy(target,rand(13,19),false,null,true);
+  try{gunSound('enemy',1/(1+dist*0.09));}catch(_){}
+}
+
 function enemyShoot(e, dist) {
   if ((gameMode === "tdm" || gameMode === "clash") && (tdmState !== "active" || tdmSpawnProtection > 0)) return;
   e.flashT = 0.06;
   const ry = e.root.rotation.y;
   const from = new THREE.Vector3(e.root.position.x + Math.sin(ry) * 0.7 * e.scale, e.root.position.y + 1.35 * e.scale, e.root.position.z + Math.cos(ry) * 0.7 * e.scale);
   const hs = Math.hypot(player.vel.x, player.vel.z);
-  const chance = clamp(0.55 - dist * 0.012 - (hs > 1 ? 0.12 : 0) - adsT * 0.06, 0.05, 0.60);
+  const chance = isTraining()
+    ? clamp(0.78 - dist * 0.009 - (hs > 1 ? 0.16 : 0) - adsT * 0.06, 0.12, 0.78)
+    : clamp(0.55 - dist * 0.012 - (hs > 1 ? 0.12 : 0) - adsT * 0.06, 0.05, 0.60);
   const hit = Math.random() < chance;
   const to = new THREE.Vector3(player.pos.x, player.pos.y + (gameMode === "clash" ? (isTraining() ? (crouchToggle ? 0.78 : 1.5) * TRAIN_SIZE : 0.92) : (crouchToggle ? 0.85 : 1.3)), player.pos.z);
   if (!hit) { const jm = isTraining() ? 0.5 : 1; to.x += rand(-1.6, 1.6) * jm; to.y += rand(-0.8, 0.8) * jm; to.z += rand(-1.6, 1.6) * jm; }
@@ -4523,20 +4549,71 @@ function updateEnemies(dt) {
   const px = player.pos.x, pz = player.pos.z;
   for (const e of enemies) {
     const r = e.root, ex = r.position.x, ez = r.position.z;
-    const dx = px - ex, dz = pz - ez, dist = Math.hypot(dx, dz) || 0.001;
+    let targetBot=null;
+    if(isTraining()&&enemies.length>1){
+      e.targetScan=(e.targetScan||0)-dt;
+      if(e.targetScan<=0){
+        e.targetScan=rand(0.35,0.75);
+        let best=null,bestD=36;
+        for(const other of enemies){
+          if(other===e||other.dead||other.teamId===e.teamId)continue;
+          const d=Math.hypot(other.root.position.x-ex,other.root.position.z-ez);
+          if(d<bestD){bestD=d;best=other;}
+        }
+        e.targetBotId=best?best.root.uuid:null;
+      }
+      if(e.targetBotId){targetBot=enemies.find(o=>o!==e&&!o.dead&&o.root.uuid===e.targetBotId)||null;}
+    }
+    const targetX=targetBot?targetBot.root.position.x:px, targetZ=targetBot?targetBot.root.position.z:pz;
+    let dx=targetX-ex, dz=targetZ-ez, dist=Math.hypot(dx,dz)||0.001;
     let los;
     if (botMap()) {
       e.losT = (e.losT || 0) - dt;
-      if (e.losT <= 0 || e.losV === undefined) { e.losT = 0.2; e.losV = trainingRayClear(ex, r.position.y + 1.0 * e.scale, ez, px, player.pos.y + 1.1 * (isTraining() ? TRAIN_SIZE : 1), pz); }
+      if (e.losT <= 0 || e.losV === undefined || e.losTargetId !== (targetBot ? targetBot.root.uuid : 'PLAYER')) {
+        e.losT = 0.18;
+        e.losTargetId = targetBot ? targetBot.root.uuid : 'PLAYER';
+        e.losV = targetBot
+          ? trainingRayClear(ex,r.position.y+1.0*e.scale,ez,targetX,targetBot.root.position.y+1.0*targetBot.scale,targetZ)
+          : trainingRayClear(ex,r.position.y+1.0*e.scale,ez,px,player.pos.y+1.1*(isTraining()?TRAIN_SIZE:1),pz);
+      }
       los = e.losV;
-    } else los = hasLOS(ex, ez, px, pz);
+    } else los = hasLOS(ex, ez, targetX, targetZ);
     r.rotation.y = angleLerp(r.rotation.y, Math.atan2(dx, dz), dt * 7);
     e.strafeT -= dt;
     if (e.strafeT <= 0) { e.strafe = Math.random() < 0.5 ? -1 : 1; e.strafeT = rand(1.5, 3.5); }
     let mx = 0, mz = 0, sp = 0;
+    // Tactical Training bots: deploy defensive Gloo when hurt, then flank its edge.
+    if (e.glooCd === undefined) e.glooCd = rand(2, 7);
+    e.glooCd = Math.max(0, e.glooCd - dt);
+    e.flankT = Math.max(0, (e.flankT || 0) - dt);
+    const botWallCount = glooWalls.reduce((n, w) => n + (w.mesh && w.mesh.userData && w.mesh.userData.botGloo ? 1 : 0), 0);
+    if (isTraining() && botMap() && e.glooCd <= 0 && botWallCount < 8 &&
+        (e.hp < e.maxHp * 0.68 || (e.hurt || 0) > 0.12) && dist > 4 && dist < 34) {
+      const gh = 1.85 * TRAIN_SIZE, gw = 3.15 * TRAIN_SIZE, gd = 0.18 * TRAIN_SIZE;
+      const yaw = Math.atan2(dx, dz), wx = ex + Math.sin(yaw) * 2.25 * TRAIN_SIZE;
+      const wz = ez + Math.cos(yaw) * 2.25 * TRAIN_SIZE;
+      const baseY = (typeof e.groundY === "number" ? e.groundY : r.position.y);
+      const wall = wzSpawnGloo({ x: wx, y: baseY + gh * 0.5, z: wz, ry: yaw, w: gw, h: gh, d: gd, g0: gh }, 5.8);
+      if (wall) wall.userData.botGloo = true;
+      e.glooCd = rand(9, 14);
+      e.flank = Math.random() < 0.5 ? -1 : 1;
+      e.flankT = rand(1.8, 3.0);
+    }
+
     
-    // Khamt hone par fight ke liye nikle aur door se hi lade (Maintain distance 14-22 units)
-    if (dist > e.prefer + 3) {
+    // Peek/flank movement: don't walk straight into the player's line of fire.
+    if (e.flankT > 0) {
+      const side = e.flank || 1;
+      mx = (-dz / dist) * side + (los ? 0 : dx / dist * 0.35);
+      mz = ( dx / dist) * side + (los ? 0 : dz / dist * 0.35);
+      const ml = Math.hypot(mx, mz) || 1; mx /= ml; mz /= ml;
+      sp = e.speed * 0.82;
+    } else if (!los) {
+      mx = dx / dist * 0.55 + (-dz / dist) * (e.flank || 1) * 0.85;
+      mz = dz / dist * 0.55 + ( dx / dist) * (e.flank || 1) * 0.85;
+      const ml = Math.hypot(mx, mz) || 1; mx /= ml; mz /= ml;
+      sp = e.speed * 0.9;
+    } else if (dist > e.prefer + 3) {
       mx = dx / dist; mz = dz / dist;
       sp = e.speed * (los ? 0.85 : 1);
     } else if (dist < e.prefer - 3) {
@@ -4577,13 +4654,22 @@ function updateEnemies(dt) {
     }
     if (e.stuck > 0) e.stuck -= dt;
 
-    const canShoot = los && dist < e.range;
+    const canShoot = los && dist < e.range && (!targetBot || !targetBot.dead);
     e.aim += ((canShoot ? 1 : 0) - e.aim) * Math.min(1, dt * 6);
+    // Crouch briefly after a burst / while line-of-sight is blocked, then peek and fire again.
+    e.ambushT=(e.ambushT||0)-dt;
+    if(isTraining()&&e.ambushT<=0){e.crouchT=los&&canShoot?rand(0.18,0.42):rand(0.45,0.9);e.ambushT=rand(1.4,2.8);}
+    e.crouchT=Math.max(0,(e.crouchT||0)-dt);
+    r.userData.wzCrouch=isTraining()&&(e.crouchT>0||(!los&&dist<18));
+    if(isTraining()&&!r.userData.wz){r.scale.y=e.scale*(r.userData.wzCrouch?0.82:1);}
     if (canShoot) {
       e.fireT -= dt;
       if (e.fireT <= 0) {
-        enemyShoot(e, dist);
-        e.fireT = rand(1.2, 2.2) / ((gameMode === "tdm" || gameMode === "clash") ? 1 : (1 + wave * 0.04));
+        if(targetBot)enemyShootBot(e,targetBot,dist);else enemyShoot(e, dist);
+        // Human-like trigger rhythm: a short burst followed by a small reposition pause.
+        e.burstLeft = (e.burstLeft === undefined || e.burstLeft <= 0) ? Math.floor(rand(2, 4)) : e.burstLeft - 1;
+        e.fireT = (isTraining() ? (e.burstLeft > 0 ? rand(0.24, 0.42) : rand(0.9, 1.45)) : rand(1.2, 2.2)) /
+          ((gameMode === "tdm" || gameMode === "clash") ? 1 : (1 + wave * 0.04));
       }
     } else e.fireT = Math.max(e.fireT, 0.5);
 
@@ -4814,10 +4900,9 @@ function startWave() {
 function updateWaves(dt) {
   if (trShield > 0) trShield -= dt;
   if (gameMode === "clash") {
-    // Training test mode: reuse Survival's enemy AI, but keep a small steady group
-    // instead of starting Survival waves or showing TDM scoring/timers.
-    if (gameMode === "clash" && tdmState === "active" && !trNoBots()) {
-      while (enemies.length < 4) spawnEnemy();
+    // Training uses a steady 20-bot practice arena; co-op rooms remain player-only.
+    if (gameMode === "clash" && tdmState === "active" && isTraining() && !trNoBots()) {
+      while (enemies.length < 20) spawnEnemy();
     }
     return;
   }
@@ -4894,8 +4979,10 @@ function updatePlayer(dt) {
   } else if (sprint) {
     speed = baseWalkSpeed * 0.75 * 1.3;
   }
-  speed *= WZ_SPEED_MUL;   // walking + sprint 40% slow (1 - 0.40)
-  if (isTraining()) speed *= 2;   // Training: walking + sprinting speed DOUBLE
+  speed *= WZ_SPEED_MUL;   // retain the existing global balance multiplier
+  if (isTraining()) speed *= 2;   // retain Training's existing scale compensation
+  // Requested global tuning, applied after all mode-specific speed calculations.
+  speed *= sprint ? 0.90 : 1.15;
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
   let wx = -sin * fx + cos * sx, wz = -cos * fx - sin * sx;
   const l = Math.hypot(wx, wz);
@@ -4976,6 +5063,9 @@ function updatePlayer(dt) {
 }
 function updateWeapon(dt) {
   const w = W[curIdx];
+  // Sprinting ke dauran firing block: held mouse/touch fire bhi shot nahi chalayega.
+  const _moveForward = clamp((keys[binds.forward] ? 1 : 0) - (keys[binds.back] ? 1 : 0) - mobileMoveY, -1, 1);
+  const sprintingNow = (keys.Shift || sprintToggle) && _moveForward > 0 && !adsToggle && !crouchToggle;
   if (reloadT > 0) { reloadT -= dt; if (reloadT <= 0) { reloadT = 0; finishReload(); } }
   if (switchT > 0) {
     switchT -= dt;
@@ -4983,8 +5073,8 @@ function updateWeapon(dt) {
     if (!swapped && p >= 0.5) { curIdx = pendingIdx; swapped = true; showGun(); }
     if (switchT <= 0) switchT = 0;
   }
-  if ((mouseL || mobileFire) && W[curIdx].auto) tryShoot();
-  if (justPressed || (mobileFire && !W[curIdx].auto)) { if (!W[curIdx].auto) tryShoot(); }
+  if (!sprintingNow && (mouseL || mobileFire) && W[curIdx].auto) tryShoot();
+  if (!sprintingNow && (justPressed || (mobileFire && !W[curIdx].auto))) { if (!W[curIdx].auto) tryShoot(); }
   justPressed = false;
 
   const cw = W[curIdx];
@@ -5212,9 +5302,11 @@ function resetGame(mode) {
       tdmState = "countdown";
       tdmCountdownTimer = 5; window._tdmLastCount = null;
     } else {
-      // Training gets four Survival-style AI bots for testing; regular Clash and PvP stay unchanged.
+      // Training gets a full 20-bot HARD practice group; regular Clash and PvP stay unchanged.
       tdmState = "active";
-      if (gameMode === "clash" && !trNoBots()) {
+      if (gameMode === "clash" && isTraining() && !trNoBots()) {
+        for (let i = 0; i < 20; i++) spawnEnemy();
+      } else if (gameMode === "clash" && !trNoBots()) {
         for (let i = 0; i < 4; i++) spawnEnemy();
       }
       if (gameMode === "pvp") { pvpLocalScore=0; pvpRemoteScore=0; pvpEnsureRemote(); pvpUpdateScore(); }
@@ -5258,12 +5350,11 @@ let trainingDeathAudio = null, trainingDeathToken = 0;
 let trainingDeathsWithoutKill = 0;
 function playTrainingDeathAndRevive() {
   const token = ++trainingDeathToken;
-  const kcOn = !!killCam;
   if (trainingDeathAudio) { try { trainingDeathAudio.pause(); trainingDeathAudio.currentTime = 0; } catch (_) {} }
   const revive = () => {
     if (token !== trainingDeathToken || !isTraining()) return;
     endKillCam();
-    let sp = getTrainingSpawn(trainingMapModel); // hamesha un 5 spawn points me se ek (jo khali aur doosron se door ho)
+    let sp = getTrainingSpawn(trainingMapModel);
     if (sp) { playerGroundY = sp.y; player.pos.set(sp.x, sp.y, sp.z); }
     player.vel.set(0, 0, 0); player.hp = 100; player.onGround = true;
     player.yaw = (sp && sp.yaw) || 0; player.pitch = 0; eyeCur = eyeTarget();
@@ -5273,24 +5364,21 @@ function playTrainingDeathAndRevive() {
     state = "playing"; tdmState = "active"; trShield = 3.0;
     document.body.classList.add("game-playing");
     const hud = $("hud"); if (hud) hud.classList.add("on");
-    banner("REVIVED", "TRAINING MODE • READY TO PRACTICE");
     setTimeout(() => { const b=$("banner"); if (b) b.classList.remove("on"); }, 1200);
   };
-  let finished = false;
-  const finish = () => { if (finished) return; finished = true; clearTimeout(fallback); revive(); };
-  // deathintraining.mp3 plays only on the 3rd death in a row without a kill; kills reset the counter.
+  // Keep the full five-second spectate even if the optional death audio ends earlier.
+  setTimeout(revive, 5000);
   trainingDeathsWithoutKill += 1;
   const playSound = trainingDeathsWithoutKill >= 3;
   if (playSound) trainingDeathsWithoutKill = 0;
-  const fallback = setTimeout(finish, (playSound && !audioMuted) ? 4500 : (kcOn ? 2000 : 1600));
   if (!playSound || audioMuted) return;
   const _dn = ["deathintraining", "deathintraining2", "deathintraining3"][Math.floor(Math.random() * 3)];
   const audio = new Audio("./sounds/" + _dn + ".mp3");
   trainingDeathAudio = audio; audio.preload = "auto"; audio.volume = 1;
-  audio.addEventListener("ended", finish, { once: true });
-  let retried = false;
-  audio.addEventListener("error", () => { if (!retried) { retried = true; audio.src = "./sounds/deathintraining.mp3"; audio.load(); try { const p2 = audio.play(); if (p2 && p2.catch) p2.catch(finish); } catch (_) { finish(); } } else finish(); });
-  try { const play = audio.play(); if (play && play.catch) play.catch(finish); } catch (_) { finish(); }
+  audio.addEventListener("error", () => {
+    try { audio.src = "./sounds/deathintraining.mp3"; audio.load(); const p2 = audio.play(); if (p2 && p2.catch) p2.catch(() => {}); } catch (_) {}
+  }, { once: true });
+  try { const play = audio.play(); if (play && play.catch) play.catch(() => {}); } catch (_) {}
 }
 
 function die(by) {
@@ -5301,8 +5389,13 @@ function die(by) {
   if (isTraining()) {
     killFeed(by.name, myKillName(), by.gun || "RIFLE", by.kid);
     const kp = by.killerId ? trPlayers.get(by.killerId) : null;
-    if (kp && kp.soldier) startKillCam(kp.soldier.root, () => { const u = kp.soldier.userData; return { yaw: kp.soldier.root.rotation.y + Math.PI, pitch: Number(u && u.netPitch) || 0 }; });
-    else if (by.root) startKillCam(by.root, null);
+    const killerRoot = (kp && kp.soldier && kp.soldier.root) || by.root || null;
+    if (kp && kp.soldier) startKillCam(killerRoot, () => { const u = kp.soldier.userData; return { yaw: kp.soldier.root.rotation.y + Math.PI, pitch: Number(u && u.netPitch) || 0 }; });
+    else if (killerRoot) startKillCam(killerRoot, null);
+    if (killerRoot) {
+      if (killCam) killCam.until = performance.now() + 5000;
+      try { if (window.wzaPlayRemoteEmote) window.wzaPlayRemoteEmote(killerRoot, 1 + Math.floor(Math.random() * 6)); } catch (_) {}
+    }
   }
   else feed('<span class="k">' + by.name + '</span><span class="w">[RIFLE]</span><span class="v">YOU</span>');
   document.exitPointerLock();
@@ -5401,6 +5494,7 @@ function requestMouseLock() {
 
 function pauseGame() {
   if (state !== "playing") return;
+  try{if(window.wzaCancelEmote)window.wzaCancelEmote();}catch(_){}
   // Hide this player's avatar on every connected peer while paused.
   try { if (gameMode === 'pvp' && pvpStarted) pvpSend({t:'visibility', visible:false}); } catch (_) {}
   try { if (trActive()) { const packet={t:'tr_visibility',id:trMyId,visible:false}; if(trRole==='host') trRelay(packet,null); else if(trHostConn) trSendFast(trHostConn,packet); } } catch (_) {}
@@ -5421,6 +5515,7 @@ function resumeGame(fromGesture = false) {
   try { if (trActive()) { const packet={t:'tr_visibility',id:trMyId,visible:true}; if(trRole==='host') trRelay(packet,null); else if(trHostConn) trSendFast(trHostConn,packet); } } catch (_) {}
   initAudio();
   state = "playing";
+  try{if(typeof tppOn!=='undefined'&&tppOn&&typeof ensureAvatar==='function')ensureAvatar().then(ok=>{if(ok&&localAnimAvatar){placeLocalAvatar();localAnimAvatar.group.visible=true;}});}catch(_){}
   try { trPauseCode(false); } catch (e) {}
   document.body.classList.add("game-playing");
   overlay.classList.add("hide");
@@ -6310,7 +6405,7 @@ function frame() {
       const _pm={t:'tr_pos',id:trMyId,sq:++trSeqOut,x:player.pos.x,y:player.pos.y,z:player.pos.z,yaw:player.yaw,pitch:player.pitch,moving:moving,ch:wzMyChar,cr:crouchToggle?1:0,wp:curIdx};
       if(trRole==='host'){trPosCache.set('H',_pm);trFlushPos();}else trSendFast(trHostConn,_pm);
     }
-    if (isTraining() && trPlayers.size) { trPlayers.forEach(pl=>{ const s=pl.soldier; if(!s)return; const u=s.userData,r=s.root; if(pl.dead){r.visible=false;return;} if(u&&u.init){netStep(r,u,dt,22);} const walk=u&&u.netMoving?Math.sin(T*11)*0.62:0; if(s.legL)s.legL.rotation.x=walk; if(s.legR)s.legR.rotation.x=-walk; if(s.armL)s.armL.rotation.x=-0.35-walk*0.22; if(s.armR)s.armR.rotation.x=-0.65+walk*0.22; wzTickNet(r,dt,u&&u.netMoving,u&&u.netCrouch); try{wzaSyncRemoteGun(s);}catch(_){} }); }
+    if (isTraining() && trPlayers.size) { trPlayers.forEach(pl=>{ const s=pl.soldier; if(!s)return; const u=s.userData,r=s.root; if(pl.dead){r.visible=false;return;} if(u&&u.init){netStep(r,u,dt,22);} const walk=u&&u.netMoving?Math.sin(T*11)*0.62:0; if(s.legL)s.legL.rotation.x=walk; if(s.legR)s.legR.rotation.x=-walk; if(s.armL)s.armL.rotation.x=-0.35-walk*0.22; if(s.armR)s.armR.rotation.x=-0.65+walk*0.22; wzTickNet(r,dt,u&&u.netMoving,u&&u.netCrouch); try{if(window.wzaTickRemoteEmote)window.wzaTickRemoteEmote(r,dt);}catch(_){} try{wzaSyncRemoteGun(s);}catch(_){} }); }
     if (gameMode === "pvp" && pvpRemote) {
       {const u=pvpRemote.userData,r=pvpRemote.root;if(u&&u.init){
         const snaps=u.netSnapshots||[]; const renderAt=performance.now()-(u.interpDelay||110);
@@ -6346,6 +6441,7 @@ function frame() {
       if(pvpRemote.armL) pvpRemote.armL.rotation.x=-0.35-walk*0.22;
       if(pvpRemote.armR) pvpRemote.armR.rotation.x=-0.65+walk*0.22;
       wzTickNet(pvpRemote.root, dt, pvpRemote.userData&&pvpRemote.userData.netMoving, pvpRemote.userData&&pvpRemote.userData.netCrouch);
+      try{if(window.wzaTickRemoteEmote)window.wzaTickRemoteEmote(pvpRemote.root,dt);}catch(_){}
       try{wzaSyncRemoteGun(pvpRemote);}catch(_){}
     }
     updatePickups(dt);
@@ -6366,6 +6462,7 @@ function frame() {
     camera.position.y = lerp(camera.position.y, 0.35, Math.min(1, dt * 3));
     camera.rotation.z = Math.min(0.9, deadT * 1.2);
     if (killCam && isTraining() && trPlayers.size) trPlayers.forEach(pl => { const s = pl.soldier; if (!s || pl.dead) return; const u = s.userData; if (u && u.init) netStep(s.root, u, dt, 16); });
+    if (killCam && killCam.root && window.wzaTickRemoteEmote) { try { window.wzaTickRemoteEmote(killCam.root, dt); } catch (_) {} }
     updateEffects(dt);
   } else if (state === "menu") {
     // Animated live 3D map preview behind the menu (no external video asset required).
@@ -7033,25 +7130,43 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   if(typeof wzLoadChar!=='function'||typeof wzInstance!=='function')return false;
   if(localAnimAvatar&&localAnimChar===wzMyChar)return true;
   if(avatarBuilding)return avatarBuilding;
+  const requestedChar=wzMyChar;
   avatarBuilding=(async()=>{
    try{
-    let tpl=await wzLoadChar(wzMyChar);
+    let tpl=await wzLoadChar(requestedChar);
     if(!tpl){   // chuni hui groom ka model load nahi hua -> enemies wale default character (phir baaki grooms) use karo
-     const order=[];for(let k=WZ_FIRST_ENEMY;k<WZ_CHARS.length;k++)order.push(k);for(let k=0;k<WZ_FIRST_ENEMY;k++)if(k!==wzMyChar)order.push(k);
+     const order=[];for(let k=WZ_FIRST_ENEMY;k<WZ_CHARS.length;k++)order.push(k);for(let k=0;k<WZ_FIRST_ENEMY;k++)if(k!==requestedChar)order.push(k);
      for(const k of order){tpl=await wzLoadChar(k);if(tpl){console.warn('[WZA] groom'+(wzMyChar+1)+' load nahi hua, fallback model:',tpl.def.file);try{toastMsg('YOUR MODEL NOT LOADED - DEFAULT CHARACTER');}catch(_){}break;}}
     }
     if(!tpl)return false;
     if(typeof wzAnim!=='undefined'&&wzAnim.ready)await wzAnim.ready;
+    if(requestedChar!==wzMyChar)return false; // grooming changed while the model was loading
     if(localAnimAvatar){scene.remove(localAnimAvatar.group);try{if(localAnimAvatar.mixer)localAnimAvatar.mixer.stopAllAction();}catch(_){}localAnimAvatar=null;localAnimMixer=null;}
     customActions={};
     const inst=wzInstance(tpl);inst.group.visible=false;scene.add(inst.group);
-    localAnimTpl=tpl;localAnimAvatar=inst;localAnimMixer=inst.mixer;localAnimChar=wzMyChar;
+    localAnimTpl=tpl;localAnimAvatar=inst;localAnimMixer=inst.mixer;localAnimChar=requestedChar;
     return true;
    }catch(e){console.warn('[WZA] Avatar animation unavailable',e);return false;}
    finally{avatarBuilding=null;}
   })();
   return avatarBuilding;
  }
+ // Refresh avatar immediately after Grooming selection (without requiring FPP/TPP toggle).
+ window.wzaRefreshAvatar=async function(){
+  try{
+   const pending=avatarBuilding;
+   if(pending)try{await pending;}catch(_){}
+   if(localAnimAvatar){scene.remove(localAnimAvatar.group);try{if(localAnimAvatar.mixer)localAnimAvatar.mixer.stopAllAction();}catch(_){}localAnimAvatar=null;localAnimMixer=null;}
+   localAnimTpl=null;localAnimChar=-1;customActions={};tppAsked=false;tppNoModel=false;
+   const ok=await ensureAvatar();
+   if(ok&&localAnimAvatar){
+    const active=typeof state!=='undefined'&&state==='playing';
+    localAnimAvatar.group.visible=!!(active&&((typeof tppOn!=='undefined'&&tppOn)||proneOn||emoteBusy));
+    if(typeof tppOn!=='undefined'&&tppOn)placeLocalAvatar();
+   }
+   return ok;
+  }catch(e){console.warn('[WZA] avatar refresh failed',e);return false;}
+ };
  function showAvatarForAction(action){
   ensureAvatar().then(ok=>{
    if(!ok||!localAnimAvatar)return;
@@ -7067,18 +7182,37 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   }catch(_){}
  }
  // Remote player's emote: plays on their character model on this device.
- window.wzaPlayRemoteEmote=function(root,n){
-  n=Math.floor(Number(n))||0;
-  const w=root&&root.userData&&root.userData.wz;if(!w)return false;
-  if(n<1||n>6){w.hold=0;return true;}
-  const key='emote'+n,clip=loadedClips[key];
-  if(!clip||!w.mixer||!w.tpl||w.dead)return false;
-  w.eact=w.eact||{};
-  let a=w.eact[key];
-  if(!a){const ad=getAdapted(w.tpl,key);if(!ad)return false;a=w.mixer.clipAction(ad);a.setLoop(THREE.LoopOnce,1);a.clampWhenFinished=true;w.eact[key]=a;}
-  playOn(w,key,a);
-  w.hold=performance.now()+Math.max(900,(clip.duration||2.2)*1000)+150;
-  return true;
+ window.wzaPlayRemoteEmote=function(root,n,attempt){
+  n=Math.floor(Number(n))||0;attempt=Number(attempt)||0;
+  if(!root||!root.userData)return false;
+  const w=root.userData.wz,now=performance.now();
+  if(n<1||n>6){
+   if(w){w.hold=0;if(w.mixer&&w.cur&&w.act[w.cur]){try{w.act[w.cur].fadeOut(0.08);}catch(_){}}}
+   root.userData.wzaEmote=null;return true;
+  }
+  if(w&&w.mixer&&w.tpl&&!w.dead){
+   const key='emote'+n,clip=loadedClips[key];
+   if(!clip){root.userData.wzaEmote={n:n,until:now+2600,t:0};if(attempt<50)setTimeout(()=>{if(root.userData&&root.userData.wzaEmote&&root.userData.wzaEmote.n===n)window.wzaPlayRemoteEmote(root,n,attempt+1);},100);return false;}
+   w.eact=w.eact||{};let a=w.eact[key];
+   if(!a){const ad=getAdapted(w.tpl,key);if(!ad){root.userData.wzaEmote={n:n,until:now+2600,t:0};if(attempt<50)setTimeout(()=>{if(root.userData&&root.userData.wzaEmote&&root.userData.wzaEmote.n===n)window.wzaPlayRemoteEmote(root,n,attempt+1);},100);return false;}a=w.mixer.clipAction(ad);a.setLoop(THREE.LoopOnce,1);a.clampWhenFinished=true;w.eact[key]=a;}
+   playOn(w,key,a);w.hold=now+Math.max(900,(clip.duration||2.2)*1000)+150;root.userData.wzaEmote={n:n,until:w.hold,t:0};return true;
+  }
+  // Built-in blue soldier has no FBX skeleton: animate its body parts procedurally instead.
+  if(root.userData.wzaParts&&Number(root.userData.wzIdx)===10){root.userData.wzaEmote={n:n,until:now+2600,t:0};return true;}
+  root.userData.wzaEmote={n:n,until:now+6500,t:0};
+  if(attempt<50)setTimeout(()=>{if(root.userData&&root.userData.wzaEmote&&root.userData.wzaEmote.n===n)window.wzaPlayRemoteEmote(root,n,attempt+1);},100);
+  else if(root.userData.wzaParts){root.userData.wzaEmote={n:n,until:now+2200,t:0};}
+  return false;
+ };
+ window.wzaTickRemoteEmote=function(root,dt){
+  const st=root&&root.userData&&root.userData.wzaEmote;if(!st)return;
+  st.t+=dt;const p=root.userData.wz?null:root.userData.wzaParts;
+  if(p){const wave=Math.sin(st.t*5.5),n=st.n;
+   if(p.armL)p.armL.rotation.x=n===1?-1.7+wave*.18:-0.9+wave*.35;
+   if(p.armR)p.armR.rotation.x=n===1?-1.7-wave*.18:-1.15-wave*.3;
+   if(p.legL)p.legL.rotation.x=wave*.08;if(p.legR)p.legR.rotation.x=-wave*.08;
+  }
+  if(performance.now()>=st.until){root.userData.wzaEmote=null;if(root.userData.wz)root.userData.wz.hold=0;if(p){if(p.armL)p.armL.rotation.x=-0.35;if(p.armR)p.armR.rotation.x=-0.65;if(p.legL)p.legL.rotation.x=0;if(p.legR)p.legR.rotation.x=0;}}
  };
 // Dusre player ki shoot.fbx animation (tr_shot / shot message aate hi)
  window.wzaPlayRemoteShoot=function(root){
@@ -7101,6 +7235,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   if(send)broadcastEmote(0);
  }
  function cancelEmote(){endEmote(true);}
+ window.wzaCancelEmote=cancelEmote;
  // Third-person camera in front of your character while it emotes, so you can see your own emote.
  window.wzaEmoteCam=function(){
   // Emote view must override BOTH FPP and TPP camera placement. Keep the full local
@@ -7200,7 +7335,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
    const w=localAnimAvatar;placeLocalAvatar();w.group.visible=true;if(tppOn){w.group.position.set(player.pos.x,player.pos.y,player.pos.z);}playOn(w,key,a);
    broadcastEmote(n);
    clearTimeout(emoteEndTimer);
-   emoteEndTimer=setTimeout(()=>endEmote(false),Math.max(900,(loadedClips[key].duration||2.2)*1000)+150);
+   emoteEndTimer=setTimeout(()=>endEmote(true),Math.max(900,(loadedClips[key].duration||2.2)*1000)+150);
   });
  }
  // Mouse wheel navigates the emote wheel instead of changing weapons while it is open.
