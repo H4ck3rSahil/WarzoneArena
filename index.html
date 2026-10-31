@@ -3993,7 +3993,12 @@ function applyKillCam() {
   if (kc.head) {
     kc.head.getWorldPosition(_kcV); cx = _kcV.x; cy = _kcV.y; cz = _kcV.z;
     _kcBox.setFromObject(kc.head); _kcBox.getSize(_kcSz); f = Math.max(_kcSz.x, _kcSz.z) * 0.6;
-  } else { cx = r.position.x; cy = r.position.y + 1.6 * r.scale.y; cz = r.position.z; f = 0.15 * r.scale.y; }
+  } else {
+    // Built-in bots have no skinned head node. Keep the camera behind them in TPP
+    // so their death emote is visible instead of placing the camera inside the body.
+    cx = r.position.x; cy = r.position.y + 2.25 * r.scale.y; cz = r.position.z;
+    f = (r.userData && r.userData.wzaParts) ? 3.25 * r.scale.y : 0.15 * r.scale.y;
+  }
   let yaw, pitch;
   const a = kc.getAim ? kc.getAim() : null;
   if (a) { yaw = a.yaw; pitch = a.pitch; }
@@ -4259,7 +4264,7 @@ function spawnEnemy(forcedX, forcedZ) {
     walkT: rand(0, 6), amp: 0, aim: 0, fireT: isTraining() ? rand(0.55, 0.9) : rand(1.0, 2.0),
     strafe: Math.random() < 0.5 ? -1 : 1, strafeT: rand(1.5, 3.5), stuck: 0, stuckT: 0, lx: x, lz: z,
     flashT: 0, hurt: 0, dead: false,
-    teamId: trainChar ? (Math.random()<0.5?0:1) : -1,
+    teamId: trainChar ? (enemies.filter(q => !q.dead && q.teamId === 0).length <= enemies.filter(q => !q.dead && q.teamId === 1).length ? 0 : 1) : -1,
     targetScan: rand(0.1,0.8), targetBotId: null,
     crouchT: 0, ambushT: rand(0.3,1.4)
   };
@@ -4547,10 +4552,26 @@ function damagePlayer(dmg, e) {
 
 function updateEnemies(dt) {
   const px = player.pos.x, pz = player.pos.z;
+  // Only the closest bot with a clear view is allowed to focus the player.
+  // Everyone else keeps fighting the opposing bot team.
+  let playerAttacker = null, playerAttackerDist = 28;
+  if (isTraining() && state === "playing") {
+    for (const candidate of enemies) {
+      if (candidate.dead) continue;
+      const cp = candidate.root.position;
+      const cd = Math.hypot(px - cp.x, pz - cp.z);
+      if (cd < playerAttackerDist &&
+          trainingRayClear(cp.x, cp.y + 1.0 * candidate.scale, cp.z,
+                           px, player.pos.y + 1.1 * TRAIN_SIZE, pz)) {
+        playerAttacker = candidate;
+        playerAttackerDist = cd;
+      }
+    }
+  }
   for (const e of enemies) {
     const r = e.root, ex = r.position.x, ez = r.position.z;
     let targetBot=null;
-    if(isTraining()&&enemies.length>1){
+    if(isTraining() && e !== playerAttacker && enemies.length > 1){
       e.targetScan=(e.targetScan||0)-dt;
       if(e.targetScan<=0){
         e.targetScan=rand(0.35,0.75);
@@ -4563,6 +4584,8 @@ function updateEnemies(dt) {
         e.targetBotId=best?best.root.uuid:null;
       }
       if(e.targetBotId){targetBot=enemies.find(o=>o!==e&&!o.dead&&o.root.uuid===e.targetBotId)||null;}
+    } else if (isTraining() && e === playerAttacker) {
+      targetBot = null;
     }
     const targetX=targetBot?targetBot.root.position.x:px, targetZ=targetBot?targetBot.root.position.z:pz;
     let dx=targetX-ex, dz=targetZ-ez, dist=Math.hypot(dx,dz)||0.001;
@@ -4649,7 +4672,24 @@ function updateEnemies(dt) {
     e.stuckT += dt;
     if (e.stuckT > 0.9) {
       const moved = Math.hypot(r.position.x - e.lx, r.position.z - e.lz);
-      if (sp > 0 && moved < sp * 0.9 * 0.35) { e.strafe *= -1; e.stuck = 1.4; e.strafeT = 1.4; }
+      if (sp > 0 && moved < Math.max(0.06, sp * 0.9 * 0.35)) {
+        e.strafe *= -1; e.stuck = 1.4; e.strafeT = 1.4;
+        // Probe around the bot and step to the nearest unblocked point.
+        if (botMap()) {
+          const dirs = [[1,0],[-1,0],[0,1],[0,-1],[.707,.707],[.707,-.707],[-.707,.707],[-.707,-.707]];
+          let best = null, bestScore = Infinity;
+          const tx = targetBot ? targetBot.root.position.x : px;
+          const tz = targetBot ? targetBot.root.position.z : pz;
+          for (const d of dirs) {
+            const nx = r.position.x + d[0] * 2.1, nz = r.position.z + d[1] * 2.1;
+            if (blockedAt(nx, nz, 0.48 * e.scale) ||
+                clashWallBlocked(r.position.x, r.position.z, nx, nz, e.groundY)) continue;
+            const score = Math.hypot(tx - nx, tz - nz) + Math.random() * 0.25;
+            if (score < bestScore) { bestScore = score; best = {x:nx,z:nz}; }
+          }
+          if (best) { r.position.x = best.x; r.position.z = best.z; e.sx = best.x; e.sz = best.z; }
+        }
+      }
       e.lx = r.position.x; e.lz = r.position.z; e.stuckT = 0;
     }
     if (e.stuck > 0) e.stuck -= dt;
@@ -4900,9 +4940,9 @@ function startWave() {
 function updateWaves(dt) {
   if (trShield > 0) trShield -= dt;
   if (gameMode === "clash") {
-    // Training uses a steady 20-bot practice arena; co-op rooms remain player-only.
+    // Training uses a steady 10-bot practice arena; co-op rooms remain player-only.
     if (gameMode === "clash" && tdmState === "active" && isTraining() && !trNoBots()) {
-      while (enemies.length < 20) spawnEnemy();
+      while (enemies.length < 10) spawnEnemy();
     }
     return;
   }
@@ -5302,10 +5342,10 @@ function resetGame(mode) {
       tdmState = "countdown";
       tdmCountdownTimer = 5; window._tdmLastCount = null;
     } else {
-      // Training gets a full 20-bot HARD practice group; regular Clash and PvP stay unchanged.
+      // Training gets a 10-bot HARD practice group; regular Clash and PvP stay unchanged.
       tdmState = "active";
       if (gameMode === "clash" && isTraining() && !trNoBots()) {
-        for (let i = 0; i < 20; i++) spawnEnemy();
+        for (let i = 0; i < 10; i++) spawnEnemy();
       } else if (gameMode === "clash" && !trNoBots()) {
         for (let i = 0; i < 4; i++) spawnEnemy();
       }
