@@ -603,6 +603,7 @@ function wzaLoadTrack(i) {
   menuMusic.src = new URL(WZA_TRACK_DIRS[0] + "theme" + (i + 1) + ".mp3", document.baseURI).href;
 }
 function playMenuMusic() {
+  if (window.__wzWebOpen) return;
   if (wzaCur < 0) wzaLoadTrack(wzaNextTrack());
   const p = menuMusic.play(); if (p && p.catch) p.catch(() => {});
 }
@@ -628,15 +629,15 @@ setInterval(function () {
   if (m !== window.WZA_inMatch) {
     window.WZA_inMatch = m;
     wzaApplyMatchVolume(m);
-    if (wzaUnlocked && menuMusic.paused && !(document.getElementById("overlay") && !document.getElementById("overlay").classList.contains("hide"))) playMenuMusic(); // lobby video audio takes priority
+    if (wzaUnlocked && menuMusic.paused && !window.__wzWebOpen && !(document.getElementById("overlay") && !document.getElementById("overlay").classList.contains("hide"))) playMenuMusic(); // lobby video audio takes priority
   }
   if (!m) { const pl = document.getElementById("pvpPingLbl"); if (pl) pl.style.display = "none"; }
-  if (wzaUnlocked && menuMusic.paused && !document.hidden && !(document.getElementById("overlay") && !document.getElementById("overlay").classList.contains("hide"))) playMenuMusic();
+  if (wzaUnlocked && menuMusic.paused && !document.hidden && !window.__wzWebOpen && !(document.getElementById("overlay") && !document.getElementById("overlay").classList.contains("hide"))) playMenuMusic();
 }, 250);
 
 document.addEventListener("click", function (e) {
   const btn = e.target.closest("button");
-  if (!btn) return;
+  if (!btn || window.__wzWebOpen) return;
   wzaUnlocked = true;
   if (menuMusic.paused) playMenuMusic();
 });
@@ -665,7 +666,7 @@ document.addEventListener("click", function (e) {
   <div id="healthBox"><div class="lbl">HEALTH</div><div id="hpBar"><div id="hpFill"></div></div><b id="hpNum">100</b></div>
   <div id="slots" aria-label="Weapon panel (all)">
     <div id="wpMain" aria-label="Weapon ammo panel"><div id="wpName">AK-47</div><div class="wpTop"><div class="wpAmmo"><b id="wpMag">30</b><span id="wpRes">/120</span></div><div id="wpIcon"></div></div><div class="wpBar"><span id="wpBarFill"></span></div></div>
-    <div id="wpRow" aria-label="Weapon switch row"><div class="slot" id="slot0" aria-label="AK-47"><svg class="weaponIcon" viewBox="0 0 180 54" role="img" aria-label="AK-47"><path d="M2 20 L14 18 L40 20 L40 31 L14 33 L4 28Z" fill="#fff"/><path d="M40 18 L100 18 L102 21 L102 31 L40 31Z" fill="#fff"/><path d="M44 14.5 L53 14.5 L53 18 L44 18Z" fill="#fff"/><path d="M100 21 L138 22 L138 31 L100 31Z" fill="#fff"/><path d="M100 17.5 L142 17.5 L146 19 L146 22 L100 22Z" fill="#fff"/><path d="M138 23 L168 23.5 L168 27 L138 28Z" fill="#fff"/><path d="M160 17 L164 17 L164 23.5 L160 23.5Z" fill="#fff"/><path d="M168 22 L176 22 L176 28 L168 28Z" fill="#fff"/><path d="M60 31 L80 31 C81 40 88 46 98 50 L92 54 C76 49 64 41 60 31Z" fill="#fff"/><path d="M42 31 L55 31 L52 47 L42 46Z" fill="#fff"/><path d="M55 31 C56 39 65 39 67 31Z" fill="#fff"/><path d="M48 24 L96 24" stroke="#14100e" stroke-width="1.5" fill="none"/><path d="M104 26 L134 26" stroke="#14100e" stroke-width="1.5" fill="none"/></svg><span class="wpN" id="wpN0">0</span><span class="wpB"><em id="wpF0"></em></span></div><div class="slot" id="slot1" aria-label="AWM sniper rifle"><svg class="weaponIcon" viewBox="0 0 180 54" role="img" aria-label="AWM sniper rifle"><path d="M2 23 L36 21 L62 23 L62 33 L44 34 L38 46 L26 46 L28 34 L2 33Z" fill="#fff"/><path d="M62 22 L100 22 L100 31 L62 31Z" fill="#fff"/><path d="M48 9 L54 9 L54 18 L48 18Z" fill="#fff"/><path d="M52 10.5 L106 10.5 L106 16.5 L52 16.5Z" fill="#fff"/><path d="M104 8 L112 8 L112 19 L104 19Z" fill="#fff"/><path d="M62 16.5 L67 16.5 L67 22 L62 22Z" fill="#fff"/><path d="M92 16.5 L97 16.5 L97 22 L92 22Z" fill="#fff"/><path d="M82 22 L84 22 L84 18.5 L88 18.5 L88 22" fill="#fff"/><circle cx="86" cy="17.5" r="2.6" fill="#fff"/><path d="M100 22 L134 22 L134 31 L100 31Z" fill="#fff"/><path d="M134 24 L172 24.5 L172 28 L134 28.5Z" fill="#fff"/><path d="M172 22.5 L178 22.5 L178 30 L172 30Z" fill="#fff"/><path d="M120 31 L113 47 L117 47 L125 31Z" fill="#fff"/><path d="M70 31 L84 31 L84 40 L70 40Z" fill="#fff"/><path d="M66 27 L98 27" stroke="#14100e" stroke-width="1.5" fill="none"/></svg><span class="wpN" id="wpN1">0</span><span class="wpB"><em id="wpF1"></em></span></div><div class="slot" id="slot2" aria-label="MP5-SMG"><svg class="weaponIcon" viewBox="0 0 180 54" role="img" aria-label="MP5 submachine gun"><path d="M3 19 L38 21 L38 27 L12 33 L3 31Z" fill="#fff"/><path d="M38 20 L98 20 L98 30 L38 30Z" fill="#fff"/><path d="M40 15.5 L51 15.5 L51 20 L40 20Z" fill="#fff"/><path d="M98 19 L140 19 L140 31 L98 31Z" fill="#fff"/><path d="M140 22 L170 22 L170 27 L140 27Z" fill="#fff"/><path d="M156 15.5 L168 15.5 L168 22 L156 22Z" fill="#fff"/><path d="M72 30 L86 30 C88 38 92 44 98 50 L90 52.5 C80 46 74 38 72 30Z" fill="#fff"/><path d="M44 30 L56 30 L52 46 L42 44Z" fill="#fff"/><path d="M56 30 C57 38 66 38 68 30Z" fill="#fff"/><path d="M104 23 L106 23 M110 23 L112 23 M116 23 L118 23 M122 23 L124 23 M128 23 L130 23 M134 23 L136 23" stroke="#14100e" stroke-width="1.5" fill="none"/><path d="M104 27 L136 27" stroke="#14100e" stroke-width="1.5" fill="none"/></svg><span class="wpN" id="wpN2">0</span><span class="wpB"><em id="wpF2"></em></span></div><div class="slot" id="slot3" aria-label="Pistol"><svg class="weaponIcon" viewBox="0 0 180 54" role="img" aria-label="Pistol"><path d="M40 12 L136 12 L142 16 L142 25 L40 25Z" fill="#fff"/><path d="M42 8 L50 8 L50 12 L42 12Z" fill="#fff"/><path d="M132 8 L138 8 L138 12 L132 12Z" fill="#fff"/><path d="M142 15 L149 15 L149 22 L142 22Z" fill="#fff"/><path d="M44 25 L110 25 L110 30 L86 30 L86 32 L78 32 L72 52 L52 52 L58 32 L44 30Z" fill="#fff"/><path d="M86 30 L100 30 L100 35 C100 38 90 38 86 35Z" fill="#fff"/><path d="M50 14 L50 23 M55 14 L55 23 M60 14 L60 23 M65 14 L65 23" stroke="#14100e" stroke-width="1.5" fill="none"/><path d="M58 38 L74 38 M57 43 L73 43" stroke="#14100e" stroke-width="1.5" fill="none"/></svg><span class="wpN" id="wpN3">0</span><span class="wpB"><em id="wpF3"></em></span></div></div>
+    <div id="wpRow" aria-label="Weapon switch row"><div class="slot" id="slot0" aria-label="AK-47"><svg class="weaponIcon" viewBox="0 0 180 54" role="img" aria-label="AK-47"><path d="M3 17 L38 20 L46 24 L40 31 L6 29Z" fill="#e0b27a"/><path d="M38 19 L102 19 L102 30 L40 30Z" fill="#f2f5f8"/><path d="M44 15 L100 15 L102 19 L42 19Z" fill="#c9d3db"/><path d="M102 20 L138 20 L140 29 L102 30Z" fill="#e0b27a"/><path d="M102 16 L146 16 L146 18.5 L102 18.5Z" fill="#c9d3db"/><path d="M138 22 L173 22 L173 26 L138 26Z" fill="#f2f5f8"/><path d="M173 20 L177 20 L177 27 L173 27Z" fill="#c9d3db"/><path d="M165 16 L168 16 L168 22 L165 22Z" fill="#f2f5f8"/><path d="M62 30 L80 30 C82 39 88 45 94 48 L88 52 C75 47 66 39 62 30Z" fill="#f2f5f8"/><path d="M70 36 L84 44" stroke="#1d2a38" stroke-width="1.5"/><path d="M44 30 L55 30 L53 45 L44 44Z" fill="#e0b27a"/><path d="M57 31 Q59 38 67 36" stroke="#f2f5f8" stroke-width="1.8" fill="none"/><path d="M50 22 L96 22" stroke="#1d2a38" stroke-width="1.6"/></svg><span class="wpN" id="wpN0">0</span><span class="wpB"><em id="wpF0"></em></span></div><div class="slot" id="slot1" aria-label="AWM sniper rifle"><svg class="weaponIcon" viewBox="0 0 180 54" role="img" aria-label="AWM sniper rifle"><path d="M3 20 L46 20 L46 31 L40 39 L8 36 L3 30Z" fill="#a8bfa5"/><path d="M3 20 L22 17 L26 20Z" fill="#a8bfa5"/><path d="M46 19 L98 19 L98 30 L46 30Z" fill="#f2f5f8"/><path d="M98 22 L168 22 L168 26.5 L98 26.5Z" fill="#f2f5f8"/><path d="M166 19.5 L178 19.5 L178 29 L166 29Z" fill="#c9d3db"/><path d="M170 21 L170 27.5 M174 21 L174 27.5" stroke="#1d2a38" stroke-width="1.2"/><path d="M54 4 L112 4 L112 14 L54 14Z" fill="#c9d3db"/><path d="M50 5.5 L54 5.5 L54 12.5 L50 12.5Z M112 5.5 L117 5.5 L117 12.5 L112 12.5Z" fill="#f2f5f8"/><path d="M60 9 L106 9" stroke="#1d2a38" stroke-width="1.6"/><path d="M62 14 L62 19 M104 14 L104 19" stroke="#f2f5f8" stroke-width="3"/><path d="M50 17 L50 11 L56 11" stroke="#f2f5f8" stroke-width="2.2" fill="none"/><path d="M62 30 L76 30 L76 39 L62 39Z" fill="#c9d3db"/><path d="M46 30 L56 30 L54 45 L46 44Z" fill="#f2f5f8"/><path d="M128 26 L121 46 M134 26 L143 46" stroke="#f2f5f8" stroke-width="2.4"/></svg><span class="wpN" id="wpN1">0</span><span class="wpB"><em id="wpF1"></em></span></div><div class="slot" id="slot2" aria-label="MP5-SMG"><svg class="weaponIcon" viewBox="0 0 180 54" role="img" aria-label="MP5 submachine gun"><path d="M3 20 L30 20 L30 23 L9 23 L9 31 L3 31Z" fill="#c9d3db"/><path d="M30 18 L108 18 L108 30 L30 30Z" fill="#f2f5f8"/><path d="M44 12 L62 12 L62 18 L44 18Z" fill="#c9d3db"/><path d="M47 12 L47 18" stroke="#1d2a38" stroke-width="1.2"/><path d="M108 19 L150 19 L150 29 L108 29Z" fill="#c9d3db"/><circle cx="116" cy="24" r="2.2" fill="#1d2a38"/><circle cx="125" cy="24" r="2.2" fill="#1d2a38"/><circle cx="134" cy="24" r="2.2" fill="#1d2a38"/><circle cx="143" cy="24" r="2.2" fill="#1d2a38"/><path d="M150 22 L168 22 L168 26 L150 26Z" fill="#f2f5f8"/><path d="M158 16.5 L166 16.5 L166 22 L158 22Z" fill="#f2f5f8"/><path d="M72 30 L85 30 L89 48 L79 50 L74 40Z" fill="#f2f5f8"/><path d="M38 30 L49 30 L47 45 L38 44Z" fill="#c9d3db"/><path d="M116 29 L125 29 L124 41 L116 41Z" fill="#c9d3db"/></svg><span class="wpN" id="wpN2">0</span><span class="wpB"><em id="wpF2"></em></span></div><div class="slot" id="slot3" aria-label="Pistol"><svg class="weaponIcon" viewBox="0 0 180 54" role="img" aria-label="Pistol"><path d="M46 12 L134 12 L138 16 L138 26 L46 26Z" fill="#f2f5f8"/><path d="M134 15 L144 15 L144 23 L134 23Z" fill="#c9d3db"/><path d="M52 14 L52 24 M57 14 L57 24 M62 14 L62 24" stroke="#1d2a38" stroke-width="1.4"/><path d="M48 8.5 L55 8.5 L55 12 L48 12Z M130 8.5 L136 8.5 L136 12 L130 12Z" fill="#f2f5f8"/><path d="M50 26 L90 26 L90 31 L82 31 L72 52 L54 52 L56 40Z" fill="#c9d3db"/><path d="M86 28 L86 34 Q86 39 93 39 L104 39 L104 28" stroke="#f2f5f8" stroke-width="2.2" fill="none"/><path d="M95 28 L95 34" stroke="#f2f5f8" stroke-width="2"/><path d="M58 40 L72 40 M57 45 L71 45" stroke="#1d2a38" stroke-width="1.2"/></svg><span class="wpN" id="wpN3">0</span><span class="wpB"><em id="wpF3"></em></span></div></div>
   </div>
   <div id="invHud">MEDKIT <i>[H]</i> <b>×0</b> &nbsp;·&nbsp; GLOO <i>[F]</i> <b>×0</b></div>
   <div id="ammoBox"><div id="wName">AK-47</div><div><span id="ammoMag">30</span><span id="ammoRes"> / 120</span></div></div>
@@ -746,6 +747,7 @@ document.addEventListener("click", function (e) {
   let soundUnlocked=false;
   function inLobby(){return !overlay.classList.contains('hide');}
   function syncLobbyVideo(){
+    if(window.__wzWebOpen){try{v.pause();if(music)music.pause();}catch(e){}return;}
     if(document.hidden){try{v.pause();if(music)music.pause();}catch(e){}return;}
     if(inLobby()){
       if(music){try{music.pause();}catch(e){}}
@@ -757,7 +759,7 @@ document.addEventListener("click", function (e) {
     }
   }
   function unlockLobbySound(){
-    if(!inLobby())return;
+    if(!inLobby()||window.__wzWebOpen)return;
     soundUnlocked=true;v.muted=false;v.volume=0.9;
     const p=v.play();if(p&&p.catch)p.catch(()=>{v.muted=true;});
     if(music){try{music.pause();}catch(e){}}
@@ -917,6 +919,8 @@ WZ_CHARS.push({ name: "DEFAULT BOT", file: null, rot: 0, scale: 1, p: null, isDe
 const WZ_FIRST_ENEMY = 11; // indices 0..10 are selectable; enemy NPC models begin at 11
 for (let i = 1; i <= 3; i++) WZ_CHARS.push({ name: "ENEMY " + i, file: "models/enemie" + i + ".glb", rot: 0, scale: 1, p: null });
 WZ_CHARS[3].bright = 2.0; // groom4 (Kratos) brightness 200%
+try { const fl = JSON.parse(localStorage.getItem("wzaFlip") || "{}"); WZ_CHARS.forEach((c, i) => { if (fl[i]) c.rot = Math.PI; }); } catch (e) {}
+function wzSaveFlip() { try { const o = {}; WZ_CHARS.forEach((c, i) => { if (c.rot) o[i] = 1; }); localStorage.setItem("wzaFlip", JSON.stringify(o)); } catch (e) {} }
 let wzMyChar = 1; // default: groom2 (rigged). Menu se badal sakte ho.
 try { const v = parseInt(localStorage.getItem("wzaChar"), 10); if (v >= 0 && v < WZ_FIRST_ENEMY) wzMyChar = v; } catch (e) {}
 
@@ -1169,6 +1173,27 @@ function wzBrighten(scene, k) {                 // template ke materials par ek 
     });
   });
 }
+// Kuch groom models Sketchfab se aaye hain: rig lete hue / ulta (peeth camera ki taraf) hota hai, isliye animation ulta chalta tha.
+// Bones (Hips->Head = upar, LeftUpperArm-RightUpperArm = left) se asli direction nikaal kar poore model ko seedha khada + muh +Z kar dete hain.
+function wzAutoOrient(scene) {
+  try {
+    scene.updateMatrixWorld(true);
+    const R = wzCollect(scene).single;
+    const hips = R.hips, head = R.head, la = R.L_upperarm || R.L_upleg, ra = R.R_upperarm || R.R_upleg;
+    if (!hips || !head || !la || !ra) return false;
+    const P = o => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+    const U = P(head).sub(P(hips)), L = P(la).sub(P(ra));
+    if (U.lengthSq() < 1e-12 || L.lengthSq() < 1e-12) return false;
+    U.normalize(); L.sub(U.clone().multiplyScalar(L.dot(U)));
+    if (L.lengthSq() < 1e-12) return false;
+    L.normalize();
+    const F = new THREE.Vector3().crossVectors(L, U).normalize();       // left x up = forward
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(L, U, F).invert());
+    if (q.angleTo(new THREE.Quaternion()) < 0.02) return false;
+    scene.quaternion.premultiply(q); scene.updateMatrixWorld(true);
+    return true;
+  } catch (e) { console.warn("[WZ] auto-orient fail", e); return false; }
+}
 function wzBuildTpl(def, gltf) {
   const scene = gltf.scene || (gltf.scenes && gltf.scenes[0]);
   if (!scene) throw new Error("scene missing");
@@ -1179,6 +1204,7 @@ function wzBuildTpl(def, gltf) {
     if (o.isSkinnedMesh) skinned = true;
   });
   scene.updateMatrixWorld(true);
+  if (skinned) { const oriented = wzAutoOrient(scene); if (oriented) console.info("[WZ] orientation sahi ki:", def.file); }
   const box = wzMeasure(scene, skinned, bones);
   const size = box.getSize(new THREE.Vector3());
   const h = size.y > 1e-6 ? size.y : 1;
@@ -1418,7 +1444,7 @@ function wzOpenGrooming() {
     '<div id="wzGrStatus" style="min-height:14px;margin:3px auto 0;max-width:95%;font:10px/1.25 Arial,sans-serif;color:#ffcf50;opacity:.9"></div>' +
     '<div id="wzGrName" style="margin:6px 0;padding-bottom:5px;font:600 clamp(11px,1.1vw,14px) Georgia,\'Times New Roman\',serif;letter-spacing:2px;color:#ffcf50;border-bottom:1px solid rgba(255,255,255,.07)"></div>' +
     '<div style="display:flex;gap:6px;justify-content:center"><button class="wzGrB" id="wzGrPrev" type="button">&#9664;</button><button class="wzGrB" id="wzGrSel" type="button">SELECT</button><button class="wzGrB" id="wzGrNext" type="button">&#9654;</button></div>' +
-    '<div style="margin-top:6px"><button class="wzGrB" id="wzGrBack" type="button">BACK</button></div></div>';
+    '<div style="margin-top:6px"><button class="wzGrB" id="wzGrFlip" type="button">&#8635; FLIP</button> <button class="wzGrB" id="wzGrBack" type="button">BACK</button></div></div>';
   menuSubPanel.classList.add("on");
   try { wzPlaceSidePanel(); } catch (e) {}
   const cv = $("wzGrCv");
@@ -1473,6 +1499,12 @@ function wzOpenGrooming() {
       if(!ok)wzToast(selectedName+" SAVED — MODEL WILL LOAD WHEN READY",2200);
       stop();closeMenuPanel();
     }).catch(err=>{console.warn('[WZ] selected avatar refresh failed',err);if(alive){stop();closeMenuPanel();}});
+  };
+  $("wzGrFlip").onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const d = WZ_CHARS[idx]; d.rot = d.rot ? 0 : Math.PI; wzSaveFlip();
+    if (cur) cur.group.rotation.y = d.rot;
+    if (status) status.textContent = d.rot ? "FLIPPED (muh ulta kiya)" : "FLIP OFF";
   };
   $("wzGrBack").onclick = e => { e.preventDefault(); e.stopPropagation(); stop(); closeMenuPanel(); };
   const loop = () => {
@@ -5009,6 +5041,13 @@ function startWave() {
 }
 function updateWaves(dt) {
   if (trShield > 0) trShield -= dt;
+  if (wzReviveHold) {   // revive ke baad jab tak player hila/fire nahi karta (max 8s) protection bani rahe -- turant dobara na mare
+    wzReviveHoldT += dt;
+    const active = Math.hypot(player.vel.x, player.vel.z) > 0.3 || mouseL;
+    if (active) { trShield = Math.max(trShield, 1.5); wzReviveHold = false; }
+    else if (wzReviveHoldT > 8 || !isTraining() || state !== "playing") wzReviveHold = false;
+    else trShield = Math.max(trShield, 0.6);
+  }
   if (gameMode === "clash") {
     // Training uses a steady 10-bot practice arena; co-op rooms remain player-only.
     if (gameMode === "clash" && tdmState === "active" && isTraining() && !trNoBots()) {
@@ -5458,8 +5497,10 @@ function resetGame(mode) {
 
 let trainingDeathAudio = null, trainingDeathToken = 0;
 let trainingDeathsWithoutKill = 0;
+let trainingReviveTimer = null, wzReviveHold = false, wzReviveHoldT = 0;
 function playTrainingDeathAndRevive() {
   const token = ++trainingDeathToken;
+  if (trainingReviveTimer) { clearTimeout(trainingReviveTimer); trainingReviveTimer = null; }   // sirf ek hi revive timer
   if (trainingDeathAudio) { try { trainingDeathAudio.pause(); trainingDeathAudio.currentTime = 0; } catch (_) {} }
   const revive = () => {
     if (token !== trainingDeathToken || !isTraining()) return;
@@ -5472,13 +5513,14 @@ function playTrainingDeathAndRevive() {
     camera.position.set(player.pos.x, player.pos.y + eyeCur, player.pos.z);
     camera.rotation.set(0, player.yaw, 0); camera.updateMatrixWorld(true);
     const hpFill = $("hpFill"); if (hpFill) hpFill.style.width = "100%";
-    state = "playing"; tdmState = "active"; trShield = 3.0;
+    state = "playing"; tdmState = "active"; trShield = 3.0; wzReviveHold = true; wzReviveHoldT = 0;
+    trainingReviveTimer = null;
     document.body.classList.add("game-playing");
     const hud = $("hud"); if (hud) hud.classList.add("on");
     wzHideBanner();
   };
   // 3-2-1 countdown ke baad revive (death audio chhota ho to bhi poora 3 sec bot POV chalta hai)
-  setTimeout(revive, 3000);
+  trainingReviveTimer = setTimeout(revive, 3000);
   trainingDeathsWithoutKill += 1;
   const playSound = trainingDeathsWithoutKill >= 3;
   if (playSound) trainingDeathsWithoutKill = 0;
@@ -5493,6 +5535,7 @@ function playTrainingDeathAndRevive() {
 }
 
 function die(by) {
+  if (state === "dead" && isTraining()) return;   // dobara die() call se doosra revive timer na bane
   document.body.classList.remove("game-playing");
   state = "dead"; deadT = 0;
   mouseL = false;
@@ -6785,28 +6828,7 @@ frame();
   if (document.readyState === "complete") pre(); else window.addEventListener("load", pre); })();
 </script>
 
-<style id="wzFFHudStyle">
-/* ===== Weapon HUD: rounded navy panels, gold serif name, big serif ammo, bar + per-slot underline ===== */
-#slots{width:clamp(190px,30vw,270px)!important;gap:6px!important}
-#slots #wpMain{display:grid!important;grid-template-columns:auto 1fr;grid-template-areas:"name icon" "ammo icon" "bar bar";column-gap:8px;align-items:center;padding:7px 11px 9px!important;background:rgba(28,38,54,.92)!important;border:1px solid rgba(255,255,255,.14)!important;border-radius:11px!important;text-shadow:none!important}
-#wpMain .wpTop{display:contents!important}
-#wpMain .wpAmmo{grid-area:ammo;display:flex;align-items:baseline;gap:3px;font-family:Georgia,"Times New Roman",serif}
-#wpMag{font-size:clamp(30px,5vw,48px)!important;font-weight:700!important;line-height:1!important;color:#fff;letter-spacing:0}
-#wpRes{font-size:clamp(11px,1.8vw,17px)!important;font-weight:700!important;opacity:.7!important;color:#fff}
-#wpName{grid-area:name;font:700 clamp(9px,1.4vw,12px)/1.1 Georgia,"Times New Roman",serif!important;letter-spacing:3px!important;color:#f0b323!important;opacity:1!important;margin:0 0 1px!important;text-transform:uppercase}
-#wpIcon{grid-area:icon;width:100%!important;height:clamp(34px,5.6vw,54px)!important;justify-content:flex-end!important}
-#wpIcon svg{filter:none!important}
-#wpIcon svg[aria-label="AK-47"] path:nth-of-type(1),#wpIcon svg[aria-label="AK-47"] path:nth-of-type(4){fill:#d9a066}
-#wpMain .wpBar{grid-area:bar;height:5px!important;margin-top:7px!important;background:rgba(255,255,255,.14)!important;border:0!important;border-radius:3px!important}
-#wpBarFill{background:#f2f2f2!important;border-radius:3px}
-#slots #wpRow{gap:6px!important}
-#slots #wpRow .slot{min-height:clamp(54px,7.8vw,72px)!important;padding:5px 4px!important;background:rgba(28,38,54,.9)!important;border:1px solid rgba(255,255,255,.14)!important;border-radius:9px!important;opacity:1!important;justify-content:center!important;gap:3px!important}
-#slots #wpRow .slot:active{background:rgba(48,62,84,.95)!important}
-#slots #wpRow .slot .weaponIcon{width:88%!important;height:clamp(20px,3.6vw,32px)!important;filter:none!important}
-#slots .wpN{position:static!important;font:700 clamp(11px,1.8vw,16px)/1 Georgia,"Times New Roman",serif!important;color:#fff}
-#slots .wpB{display:block!important;width:78%;height:3px;border-radius:2px;background:rgba(255,255,255,.2);margin-top:2px}
-#slots .wpB em{border-radius:2px;background:#eee}
-</style>
+
 
 <style>
 /* ===== Lobby "NEW GAME" card + in-app website viewer ===== */
@@ -6832,6 +6854,18 @@ frame();
 #wzWebView iframe{flex:1;width:100%;border:0;background:#fff}
 </style>
 <script>
+// fightkaro (ya koi bhi web page) khulne par game ki apni awaaz (intro, lobby video, menu music, sab) band -- sirf us page ki awaaz sunayi de
+window.__wzWebOpen = false;
+function wzPauseGameAudio() {
+  window.__wzWebOpen = true;
+  try { const sp = document.getElementById("introSplash"); if (sp) { const iv = document.getElementById("introVideo"); if (iv) { iv.muted = true; try { iv.pause(); } catch (_) {} } sp.remove(); } } catch (e) {}
+  try { document.querySelectorAll("video, audio").forEach(m => { try { m.pause(); } catch (_) {} }); } catch (e) {}
+  try { if (typeof actx !== "undefined" && actx && actx.state === "running") actx.suspend(); } catch (e) {}
+}
+function wzResumeGameAudio() {
+  window.__wzWebOpen = false;
+  try { if (typeof actx !== "undefined" && actx && actx.state === "suspended") actx.resume(); } catch (e) {}
+}
 function wzOpenWeb(url) {
   try { if (document.exitPointerLock) document.exitPointerLock(); } catch (e) {}
   // Inside the Claude preview (claudeusercontent.com) the sandbox CSP blocks embedding other sites (ERR_BLOCKED_BY_CSP): open a normal tab instead.
@@ -6843,13 +6877,14 @@ function wzOpenWeb(url) {
     document.body.appendChild(w);
     const f = w.querySelector("iframe"), ld = w.querySelector(".wzWvLoad");
     f.addEventListener("load", () => { ld.style.display = "none"; });
-    const close = () => { w.classList.remove("on"); try { f.src = "about:blank"; } catch (e) {} };
+    const close = () => { w.classList.remove("on"); try { f.src = "about:blank"; } catch (e) {} wzResumeGameAudio(); };
     w.querySelector(".wzWvBack").addEventListener("click", close);
     w.querySelector(".wzWvFull").addEventListener("click", () => { const u = w._url || url; try { const nw = window.open(u, "_blank", "noopener"); if (nw) return; } catch (e) {} window.location.href = u; });   // if the site refuses to be embedded
     window.addEventListener("keydown", ev => { if (ev.key === "Escape" && w.classList.contains("on")) { ev.stopPropagation(); close(); } }, true);
   }
   w._url = url;
   w.querySelector(".wzWvLoad").style.display = "block";
+  wzPauseGameAudio();
   w.querySelector("iframe").src = url;
   w.classList.add("on");
 }
