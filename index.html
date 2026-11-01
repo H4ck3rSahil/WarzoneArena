@@ -699,6 +699,7 @@ document.addEventListener("click", function (e) {
     <div id="menuTagline" aria-live="polite">THE NIGHT IS DARK.<br>THE WARRIOR IS UNBROKEN.</div>
     <div id="menuFoot">TACTICAL SURVIVAL • SINGLE PLAYER</div>
   </section>
+  <a id="wzLobbyPromo" class="wzLobbyPromo" href="https://fightkaro.com/" role="button" aria-label="New game - Play"><img alt="" width="64" height="64" src="newgame.png" onerror="this.onerror=null;this.src=window.__wzPromoFallback"><span class="wzLpTxt"><b>NEW GAME</b><span class="wzLpPlay">PLAY</span></span></a>
   <section id="menuRight">
     <div id="menuTitle">WARZONE <span>ARENA</span></div>
     <div id="menuRule"></div>
@@ -2147,6 +2148,7 @@ const TRAIN_SPAWNS = [
 function trainingSpawnPoints() {
   const m = trainingMapModel; if (!m) return [];
   if (m.userData._spawn5) return m.userData._spawn5;
+  try { trFloorGridFor(m); if (!m.userData._wallGrid) m.userData._wallGrid = trBuildWallGrid(m); } catch (e) {}   // build collision/floor grids now (at match start), not mid-game
   m.updateMatrixWorld(true);
   const r = trainingArenaRect(); const out = [], nm = new THREE.Matrix3();
   const top = (m.userData.mapBounds ? m.userData.mapBounds.max.y : r.yHi + 10) + 5;
@@ -2225,13 +2227,18 @@ function updateClashMapFloor(dt, previousFeetY = player.pos.y) {
   if (gameMode !== "clash" || !clashMapModel) return false;
   const _f = updateClashMapFloor._c || (updateClashMapFloor._c = {});
   if (player.onGround && _f.m === clashMapModel && Math.abs(player.pos.x - _f.x) < 1e-4 && Math.abs(player.pos.z - _f.z) < 1e-4 && Math.abs(player.pos.y - _f.y) < 0.03 && player.vel.y <= 0.001) { player.pos.y = _f.y; player.vel.y = 0; playerGroundY = _f.y; return true; }
-  clashMapModel.updateMatrixWorld(true);
+  if (!isTraining()) clashMapModel.updateMatrixWorld(true);   // Training map is static: no per-frame matrix update
   // Cast from above the player and look down onto the actual loaded GLB mesh.
   // A longer ray supports raised platforms and stairs without using the old flat arena floor.
   const originY = Math.max(previousFeetY, player.pos.y) + 0.75;
-  mapFloorRaycaster.set(new THREE.Vector3(player.pos.x, originY, player.pos.z), mapFloorDown);
-  mapFloorRaycaster.far = Math.max(18, originY - (playerGroundY - 2));
-  const hits = mapFloorRaycaster.intersectObject(clashMapModel, true);
+  let hits;
+  if (isTraining()) {
+    hits = trFloorHits(trFloorGridFor(clashMapModel), player.pos.x, player.pos.z, originY).map(y => ({ point: { y }, _ny: 1 }));
+  } else {
+    mapFloorRaycaster.set(new THREE.Vector3(player.pos.x, originY, player.pos.z), mapFloorDown);
+    mapFloorRaycaster.far = Math.max(18, originY - (playerGroundY - 2));
+    hits = mapFloorRaycaster.intersectObject(clashMapModel, true);
+  }
   if (!hits.length) return false;
   // Pick the closest walkable surface at or just below the player's feet.
   const feetY = player.pos.y;
@@ -2240,8 +2247,8 @@ function updateClashMapFloor(dt, previousFeetY = player.pos.y) {
     const dy = hit.point.y - feetY;
     // Only accept a real upward-facing floor/stair immediately under the feet.
     // The old -2.8 tolerance made a falling/jumping player snap to distant surfaces.
-    let normalY = -1;
-    if (hit.face) {
+    let normalY = hit._ny !== undefined ? hit._ny : -1;
+    if (hit._ny === undefined && hit.face) {
       normalY = hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize().y;
     }
     const crossedFloorWhileFalling = player.vel.y <= 0 && previousFeetY >= hit.point.y - 0.05 && player.pos.y <= hit.point.y + 0.03; // sirf floor cross hone par land (pehle 0.55 ka magnet tha)
@@ -2332,6 +2339,54 @@ function trBuildWallGrid(model) {
     }
   }
   return { CELL, arr, n, cells, stamp: new Int32Array(n), sid: 0 };
+}
+// Fast floor lookup: up-facing triangles in a grid, so standing/walking in Training never raycasts the whole 92k-triangle map.
+function trBuildFloorGrid(model) {
+  const CELL = 0.75, T = [], cells = new Map();
+  model.updateMatrixWorld(true);
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  model.traverse(o => {
+    if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return;
+    let vis = true, p = o; while (p) { if (p.visible === false) { vis = false; break; } p = p.parent; }
+    if (!vis) return;
+    const nm = String(o.name || '').toLowerCase();
+    if (/collision|collider|blocker|navmesh|trigger|invisible|proxy|vfx|water|grass|alphaisland_tree/.test(nm)) return;
+    if (trGhostMesh(o)) return;
+    const pos = o.geometry.attributes.position, idx = o.geometry.index, cnt = idx ? idx.count : pos.count, mw = o.matrixWorld;
+    for (let i = 0; i + 2 < cnt; i += 3) {
+      a.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(mw);
+      b.fromBufferAttribute(pos, idx ? idx.getX(i + 1) : i + 1).applyMatrix4(mw);
+      c.fromBufferAttribute(pos, idx ? idx.getX(i + 2) : i + 2).applyMatrix4(mw);
+      e1.subVectors(b, a); e2.subVectors(c, a); e1.cross(e2);
+      const len = e1.length(); if (len < 1e-10 || e1.y / len <= 0.65) continue;
+      T.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+    }
+  });
+  const n = T.length / 9, arr = new Float32Array(T);
+  for (let t = 0; t < n; t++) {
+    const o = t * 9;
+    const minx = Math.min(arr[o], arr[o + 3], arr[o + 6]), maxx = Math.max(arr[o], arr[o + 3], arr[o + 6]);
+    const minz = Math.min(arr[o + 2], arr[o + 5], arr[o + 8]), maxz = Math.max(arr[o + 2], arr[o + 5], arr[o + 8]);
+    for (let ix = Math.floor(minx / CELL); ix <= Math.floor(maxx / CELL); ix++) for (let iz = Math.floor(minz / CELL); iz <= Math.floor(maxz / CELL); iz++) {
+      const k = (ix + 4096) * 8192 + (iz + 4096);
+      let l = cells.get(k); if (!l) { l = []; cells.set(k, l); } l.push(t);
+    }
+  }
+  return { CELL, arr, n, cells };
+}
+function trFloorGridFor(model) { return model.userData._floorGrid || (model.userData._floorGrid = trBuildFloorGrid(model)); }
+// heights (highest first) of every walkable surface under (x,z) that is not above maxY
+function trFloorHits(g, x, z, maxY) {
+  const out = [], C = g.CELL, lst = g.cells.get((Math.floor(x / C) + 4096) * 8192 + (Math.floor(z / C) + 4096)); if (!lst) return out;
+  const arr = g.arr;
+  for (let q = 0; q < lst.length; q++) {
+    const o = lst[q] * 9, ax = arr[o], ay = arr[o + 1], az = arr[o + 2], bx = arr[o + 3], by = arr[o + 4], bz = arr[o + 5], cx = arr[o + 6], cy = arr[o + 7], cz = arr[o + 8];
+    const den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz); if (Math.abs(den) < 1e-12) continue;
+    const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / den, l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / den, l3 = 1 - l1 - l2;
+    if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
+    const y = l1 * ay + l2 * by + l3 * cy; if (y <= maxY) out.push(y);
+  }
+  out.sort((p, q) => q - p); return out;
 }
 function trSegD2(px, pz, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az, l = dx * dx + dz * dz;
@@ -2537,7 +2592,7 @@ function createTrainingInteractions() {
 }
 function updateTrainingInteractions(dt) {
   if (!isTraining() || !trainingMapModel) { trainingPortalHold=0; const sb0=document.getElementById("shopBtn"); if(sb0) sb0.style.display="none"; return; }
-  const nearPortal = trainingPortal && Math.hypot(player.pos.x-trainingPortal.position.x, player.pos.z-trainingPortal.position.z)<1.25 && Math.abs(player.pos.y-trainingPortal.position.y)<2.4;
+  const nearPortal = false;   // Portal teleport band: spawn ab sirf 5 fixed points se hota hai, revive ke baad dobara spawn nahi hoga
   if (nearPortal) {
     trainingPortalHold += dt;
     if (T-trainingHintAt>1.2) { banner('ENTERING TRAINING AREA', Math.max(0,Math.ceil(3-trainingPortalHold))+' SEC'); trainingHintAt=T; }
@@ -3342,7 +3397,7 @@ function trHandleData(raw,conn){let m;try{m=typeof raw==='string'?JSON.parse(raw
   if(m.t==='tr_all'){if(!trStarted)return;const q=Number(m.sq);if(Number.isFinite(q)){if(q<=trAllSq)return;trAllSq=q;}(m.p||[]).forEach(a=>trApplyPos(a[0],a[1],a[2],a[3],a[4],a[5],a[6],a[7],a[8],a[9]));return;}
  }
  if(m.t==='tr_pos'&&trStarted){trApplyPos(m.id,m.x,m.y,m.z,m.yaw,m.pitch,m.moving,m.ch,m.cr,m.wp);return;}
- if(m.t==='tr_shot'&&trStarted){if(m.id===trMyId)return;const p=trPlayers.get(m.id);if(p&&p.dead)return;try{wzRemoteGun(m);}catch(_){}if(p&&p.soldier&&p.soldier.root&&window.wzaPlayRemoteShoot)window.wzaPlayRemoteShoot(p.soldier.root);const o=new THREE.Vector3(Number(m.x),Number(m.y),Number(m.z));const d=new THREE.Vector3(Number(m.dx),Number(m.dy),Number(m.dz));if(![o.x,o.y,o.z,d.x,d.y,d.z].every(Number.isFinite))return;const dist=Math.hypot(o.x-player.pos.x,o.z-player.pos.z);addTracer(o,o.clone().addScaledVector(d,40),tracerMatE);try{gunSound('enemy',1/(1+dist*0.12));}catch(_){}return;}
+ if(m.t==='tr_shot'&&trStarted){if(m.id===trMyId)return;const p=trPlayers.get(m.id);if(p&&p.dead)return;try{wzRemoteGun(m);}catch(_){}if(p&&p.soldier&&p.soldier.root&&window.wzaPlayRemoteShoot)window.wzaPlayRemoteShoot(p.soldier.root);const o=new THREE.Vector3(Number(m.x),Number(m.y),Number(m.z));const d=new THREE.Vector3(Number(m.dx),Number(m.dy),Number(m.dz));if(![o.x,o.y,o.z,d.x,d.y,d.z].every(Number.isFinite))return;const dist=Math.hypot(o.x-player.pos.x,o.z-player.pos.z);addTracer(o,o.clone().addScaledVector(d,40),tracerMatE);return;}   /* the host/joiner's real gun sound already played above via wzRemoteGun */
  if(m.t==='tr_gloo'&&trStarted){if(m.id===trMyId)return;try{wzGlooFromNet(m);}catch(_){}return;}
  if(m.t==='tr_kill'&&trStarted){trHandleKill(m);return;}
 }
@@ -3819,23 +3874,17 @@ function wzHideBanner() {
   const b = $("bigmsg"); if (b) { b.classList.remove("show"); b.classList.remove("pvp-start-banner"); b.style.color = ""; }
   clearTimeout(bannerTO);
 }
-// Maut ke baad: "YOU WERE ELIMINATED - REVIVE IN 3 / 2 / 1", phir band (bot ka POV isi dauran dikhta hai)
-function wzDeathCountdown(n) {
-  wzHideBanner(); wzCdActive = true;
-  const b = $("bigmsg");
-  const put = k => { b.classList.remove("pvp-start-banner"); b.style.color = ""; b.innerHTML = "YOU WERE ELIMINATED<small>REVIVE IN " + k + "</small>"; b.classList.add("show"); };
-  put(n);
-  for (let k = n - 1; k >= 1; k--) wzCdTimers.push(setTimeout(() => put(k), (n - k) * 1000));
-  wzCdTimers.push(setTimeout(wzHideBanner, n * 1000));
-}
+// Maut ke baad ab koi notification nahi aata (sirf bot ka POV 3 sec, phir revive).
+function wzDeathCountdown(n) { wzHideBanner(); }
 // Koi bhi banner ek baar aane ke baad ~5s me zaroor hat jaye (atakta nahi)
 setInterval(() => {
   const b = $("bigmsg"); if (!b || wzCdActive || !b.classList.contains("show")) return;
   if (typeof pvpFinalSoundPlayed !== "undefined" && pvpFinalSoundPlayed) return;
   if (performance.now() - wzBannerAt > 5500) b.classList.remove("show");
 }, 500);
+setInterval(() => { const b = $("bigmsg"); if (b && b.classList.contains("show") && /ELIMINATED|REVIVE|REVIVING|ENTERING TRAINING|TRAINING AREA/i.test(b.textContent || "")) wzHideBanner(); }, 150);
 function banner(t, sub) {
-  if (wzCdActive && String(t).indexOf("ELIMINATED") < 0) return;   // countdown ke beech me doosra banner nahi
+  if (/ELIMINATED|REVIV|ENTERING TRAINING|TRAINING AREA/i.test(String(t) + " " + String(sub || ""))) return;   // ye notifications ab nahi aate
   wzBannerAt = performance.now();
   const b = $("bigmsg");
   b.innerHTML = t + (sub ? "<small>" + sub + "</small>" : "");
@@ -4423,23 +4472,12 @@ function placeGlooWall() {
   const tpl = wzGlooTpl.v, ar = tpl ? tpl.size.x / (tpl.size.y || 1) : 1.6 / 1.85;   // model ka asli ratio
   const gw = gh * ar * GLOO_WIDTH_MULT;
   const gdp = Math.max(0.06 * gk, tpl ? gh * tpl.size.z / (tpl.size.y || 1) : 0.3 * gk * gh / gh0) * GLOO_WIDTH_MULT;
-  // Wall kahin bhi lag sakti hai: map ki deewar/model se bilkul chipak ke, ya doosri gloo wall ke bagal me (upar stack nahi). "Space nahi hai" wala rok hata diya.
   const mapM = isTraining() ? trainingMapModel : (gameMode === "clash" ? clashMapModel : null);
   const targets = mapM ? [mapM] : staticTargets;
-  const reach = 3.8 * gk, minD = gdp / 2 + 0.45 * gk;
-  let dist = reach;
-  try {   // aage koi deewar/object ho to wall uske saath chipka do (andar na ghuse, bahar bhi na rahe)
-    _glooRay.set(new THREE.Vector3(player.pos.x, player.pos.y + 0.55 * gh, player.pos.z), new THREE.Vector3(dirX, 0, dirZ));
-    _glooRay.near = 0; _glooRay.far = reach + gdp / 2;
-    const hits = _glooRay.intersectObjects(targets, true);
-    for (const h of hits) {
-      if (h.object && h.object.userData && h.object.userData.glooWall) continue;
-      let vis = true, n = h.object; while (n) { if (n.visible === false) { vis = false; break; } n = n.parent; }
-      if (!vis) continue;
-      dist = Math.min(reach, Math.max(minD, h.distance - gdp / 2 - 0.01 * gk));
-      break;
-    }
-  } catch (e) {}
+  // Wall goes directly in front of the player. Its near face sits just outside the player's body collider
+  // (same radius wzGlooCollide uses + a small margin), so it is as close as possible but never overlaps / pushes the player.
+  const pr = 0.34 * (isTraining() ? TRAIN_SIZE / 0.288 : 1);
+  const dist = gdp / 2 + pr + 0.07 * gk;
   const x = player.pos.x + dirX * dist, z = player.pos.z + dirZ * dist;
   // Zameen ki asli unchai us jagah (seedhi/ledge par wall hawa me ya zameen ke andar na rahe)
   let baseY = player.pos.y;
@@ -4537,7 +4575,7 @@ function enemyShootBot(e, target, dist) {
   addTracer(from,to,tracerMatE);
   const hit=Math.random()<clamp(0.72-dist*0.006,0.42,0.72);
   if(hit)damageEnemy(target,rand(13,19),false,null,true);
-  try{gunSound('enemy',1/(1+dist*0.09));}catch(_){}
+  // (bot gun sound removed: only your own gun and the host/joiner's guns are audible)
 }
 
 function enemyShoot(e, dist) {
@@ -4555,7 +4593,7 @@ function enemyShoot(e, dist) {
   
   if (botMap() ? trainingRayClear(from.x, from.y, from.z, to.x, to.y, to.z) : hasLOS(from.x, from.z, to.x, to.z)) {
     addTracer(from, to, tracerMatE);
-    gunSound("enemy", 1 / (1 + dist * 0.07));
+    // (bot gun sound removed: only your own gun and the host/joiner's guns are audible)
     if (hit && !shotBlockedByGloo(from, to)) damagePlayer(e.dmg, e);
   }
 }
@@ -4575,30 +4613,35 @@ function damagePlayer(dmg, e) {
 
 function updateEnemies(dt) {
   const px = player.pos.x, pz = player.pos.z;
-  // Only the closest bot with a clear view is allowed to focus the player.
-  // Everyone else keeps fighting the opposing bot team.
-  let playerAttacker = null, playerAttackerDist = 28;
-  if (isTraining() && state === "playing") {
+  // Attention split: only the CLOSEST bot with a clear view focuses the player (a 2nd one joins only if it is also really close).
+  // Everybody else keeps fighting the opposing bot team, so the whole squad no longer piles onto the player.
+  let playerAttacker = null, playerAttackerDist = 28, playerAttacker2 = null, pa2Dist = 7;
+  if (isTraining() && state === "playing" && (updateEnemies._paT = (updateEnemies._paT || 0) - dt) > 0 && updateEnemies._pa && enemies.includes(updateEnemies._pa) && !updateEnemies._pa.dead) {
+    playerAttacker = updateEnemies._pa; playerAttackerDist = Math.hypot(px - playerAttacker.root.position.x, pz - playerAttacker.root.position.z);   // reuse last result (scan runs ~7x/second, not every frame)
+    const s2 = updateEnemies._pa2; if (s2 && enemies.includes(s2) && !s2.dead) playerAttacker2 = s2;
+  } else if (isTraining() && state === "playing") {
+    updateEnemies._paT = 0.14;
     for (const candidate of enemies) {
       if (candidate.dead) continue;
       const cp = candidate.root.position;
       const cd = Math.hypot(px - cp.x, pz - cp.z);
-      if (cd < playerAttackerDist &&
-          trainingRayClear(cp.x, cp.y + 1.0 * candidate.scale, cp.z,
-                           px, player.pos.y + 1.1 * TRAIN_SIZE, pz)) {
-        playerAttacker = candidate;
-        playerAttackerDist = cd;
-      }
+      if (cd >= Math.max(playerAttackerDist, pa2Dist) && !(cd < playerAttackerDist)) continue;
+      if (!trainingRayClear(cp.x, cp.y + 1.0 * candidate.scale, cp.z, px, player.pos.y + 1.1 * TRAIN_SIZE, pz)) continue;
+      if (cd < playerAttackerDist) {
+        if (playerAttacker && playerAttackerDist < pa2Dist) { playerAttacker2 = playerAttacker; pa2Dist = playerAttackerDist; }
+        playerAttacker = candidate; playerAttackerDist = cd;
+      } else if (cd < pa2Dist) { playerAttacker2 = candidate; pa2Dist = cd; }
     }
+    updateEnemies._pa = playerAttacker; updateEnemies._pa2 = playerAttacker2;
   }
   for (const e of enemies) {
     const r = e.root, ex = r.position.x, ez = r.position.z;
     let targetBot=null;
-    if(isTraining() && e !== playerAttacker && enemies.length > 1){
+    if(isTraining() && e !== playerAttacker && e !== playerAttacker2 && enemies.length > 1){
       e.targetScan=(e.targetScan||0)-dt;
       if(e.targetScan<=0){
-        e.targetScan=rand(0.35,0.75);
-        let best=null,bestD=36;
+        e.targetScan=rand(1.1,2.0);   // keep a target for a while instead of flipping every frame
+        let best=null,bestD=Infinity;
         for(const other of enemies){
           if(other===e||other.dead||other.teamId===e.teamId)continue;
           const d=Math.hypot(other.root.position.x-ex,other.root.position.z-ez);
@@ -4607,7 +4650,7 @@ function updateEnemies(dt) {
         e.targetBotId=best?best.root.uuid:null;
       }
       if(e.targetBotId){targetBot=enemies.find(o=>o!==e&&!o.dead&&o.root.uuid===e.targetBotId)||null;}
-    } else if (isTraining() && e === playerAttacker) {
+    } else if (isTraining() && (e === playerAttacker || e === playerAttacker2)) {
       targetBot = null;
     }
     const targetX=targetBot?targetBot.root.position.x:px, targetZ=targetBot?targetBot.root.position.z:pz;
@@ -4684,9 +4727,13 @@ function updateEnemies(dt) {
       e.floorT = (e.floorT || 0) - dt;
       if (e.floorT <= 0) {
         e.floorT = 0.1;
-        spawnRaycaster.set(new THREE.Vector3(r.position.x, e.groundY + 1.0, r.position.z), spawnRayDown); spawnRaycaster.far = 3;
-        const fh = spawnRaycaster.intersectObject(botMap(), true);
-        for (const h of fh) { if (!h.face) continue; const nn = h.face.normal.clone().transformDirection(h.object.matrixWorld); if (nn.y > 0.6 && h.point.y <= e.groundY + 0.7) { e.groundTarget = h.point.y + 0.04; break; } }
+        if (botMap() === trainingMapModel && trainingMapModel) {
+          for (const y of trFloorHits(trFloorGridFor(trainingMapModel), r.position.x, r.position.z, e.groundY + 1.0)) { if (y < e.groundY - 2.0) break; if (y <= e.groundY + 0.7) { e.groundTarget = y + 0.04; break; } }
+        } else {
+          spawnRaycaster.set(new THREE.Vector3(r.position.x, e.groundY + 1.0, r.position.z), spawnRayDown); spawnRaycaster.far = 3;
+          const fh = spawnRaycaster.intersectObject(botMap(), true);
+          for (const h of fh) { if (!h.face) continue; const nn = h.face.normal.clone().transformDirection(h.object.matrixWorld); if (nn.y > 0.6 && h.point.y <= e.groundY + 0.7) { e.groundTarget = h.point.y + 0.04; break; } }
+        }
       }
       if (e.groundTarget !== undefined) e.groundY += (e.groundTarget - e.groundY) * Math.min(1, dt * 12);
     }
@@ -5417,8 +5464,9 @@ function playTrainingDeathAndRevive() {
   const revive = () => {
     if (token !== trainingDeathToken || !isTraining()) return;
     endKillCam();
+    wzSafePos = null; trainingPortalHold = 0;   // purani 'safe' jagah ya portal timer revive ke baad dobara teleport na kare
     let sp = getTrainingSpawn(trainingMapModel);
-    if (sp) { playerGroundY = sp.y; player.pos.set(sp.x, sp.y, sp.z); }
+    if (sp) { playerGroundY = sp.y; player.pos.set(sp.x, sp.y, sp.z); try { console.info('[WZ] revive spawn point:', sp.id, sp.x.toFixed(2), sp.z.toFixed(2)); } catch (_) {} }
     player.vel.set(0, 0, 0); player.hp = 100; player.onGround = true;
     player.yaw = (sp && sp.yaw) || 0; player.pitch = 0; eyeCur = eyeTarget();
     camera.position.set(player.pos.x, player.pos.y + eyeCur, player.pos.z);
@@ -6060,12 +6108,19 @@ function openMenuPanel(kind) {
     title.textContent = "CREDITS";
     content.innerHTML = '<p>WARZONE ARENA</p><p>A browser-based tactical shooter.</p>' +
       '<p class="crBy">CREDIT BY <b>@h4ck3rsahil</b></p>' +
-      '<p>INSTAGRAM: <a href="https://www.instagram.com/h4ck3rsahil/" target="_blank" rel="noopener noreferrer">@h4ck3rsahil</a></p>';
+      '<p>INSTAGRAM: <a href="https://www.instagram.com/h4ck3rsahil/" target="_blank" rel="noopener noreferrer">@h4ck3rsahil</a></p>' +
+      '<a class="wzPromo" id="wzPromoCard" href="https://fightkaro.com/" target="_blank" rel="noopener noreferrer"><img alt="" width="76" height="76" src="newgame.png" onerror="this.onerror=null;this.src=window.__wzPromoFallback"><span class="wzPromoTxt"><b>NEW GAME</b><span class="wzPromoPlay">&#9654; PLAY</span></span></a>';
+    const promo = content.querySelector("#wzPromoCard");
+    if (promo) promo.addEventListener("click", e => {   // Play -> opens fightkaro.com (new tab; falls back to this tab inside an APK WebView)
+      e.preventDefault();
+      wzOpenWeb("https://fightkaro.com/");   // opens inside the game, not in a new tab
+    });
   }
   menuSubPanel.classList.add("on");
   wzPlaceSidePanel();
 }
 
+window.__wzPromoFallback = "data:image/jpeg;base64,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";   // shown only if newgame.png is missing
 let wzModeChosen = false;   // is session mein koi game mode chuna gaya ya nahi
 menuSubPanel.addEventListener("click", e => { if (e.target && e.target.closest && e.target.closest(".modeCard")) wzModeChosen = true; }, true);
 $("startBtn").addEventListener("click", e => {
@@ -6752,6 +6807,57 @@ frame();
 #slots .wpB{display:block!important;width:78%;height:3px;border-radius:2px;background:rgba(255,255,255,.2);margin-top:2px}
 #slots .wpB em{border-radius:2px;background:#eee}
 </style>
+
+<style>
+/* ===== Lobby "NEW GAME" card + in-app website viewer ===== */
+.wzLobbyPromo{position:absolute;left:3vw;top:5vh;z-index:6;display:flex;align-items:center;gap:12px;padding:8px 16px 8px 8px;border-radius:14px;
+  background:linear-gradient(135deg,rgba(16,9,9,.82),rgba(44,10,13,.74));border:1px solid rgba(231,184,45,.6);
+  box-shadow:0 8px 26px rgba(0,0,0,.6),inset 0 0 0 1px rgba(190,55,48,.35),0 0 24px rgba(190,55,48,.28);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);cursor:pointer;text-decoration:none;color:#fff;-webkit-tap-highlight-color:transparent;transition:transform .15s ease}
+.wzLobbyPromo:active{transform:scale(.96)}
+.wzLobbyPromo img{width:64px;height:64px;border-radius:10px;object-fit:cover;flex:none;border:1px solid rgba(255,255,255,.3);box-shadow:0 2px 10px rgba(0,0,0,.6)}
+.wzLpTxt{display:flex;flex-direction:column;gap:9px;min-width:0}
+.wzLpTxt b{font:800 15px/1 Georgia,'Times New Roman',serif;letter-spacing:3px;color:#fff;text-shadow:0 2px 6px #000}
+.wzLpPlay{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;padding:8px 20px 8px 14px;border-radius:999px;background:linear-gradient(180deg,#ffe07a,#e3a817 60%,#c58a08);color:#1b1300;font:900 12px/1 Arial,sans-serif;letter-spacing:2.5px;box-shadow:0 2px 0 #7a5200,0 4px 14px rgba(231,184,45,.4);animation:wzLpPulse 2.2s ease-in-out infinite}
+.wzLpPlay:before{content:"";width:0;height:0;border-left:10px solid #1b1300;border-top:6px solid transparent;border-bottom:6px solid transparent}
+@keyframes wzLpPulse{0%,100%{box-shadow:0 2px 0 #7a5200,0 4px 14px rgba(231,184,45,.35)}50%{box-shadow:0 2px 0 #7a5200,0 4px 22px rgba(255,214,90,.8)}}
+@media(max-width:760px),(max-height:520px){.wzLobbyPromo{left:2.5vw;top:3vh;padding:6px 12px 6px 6px;gap:9px;border-radius:11px}.wzLobbyPromo img{width:46px;height:46px}.wzLpTxt{gap:6px}.wzLpTxt b{font-size:12px;letter-spacing:2px}.wzLpPlay{padding:6px 15px 6px 10px;font-size:10px}}
+#wzWebView{position:fixed;inset:0;z-index:2147483000;display:none;flex-direction:column;background:#0b0b0d}
+#wzWebView.on{display:flex}
+#wzWebView .wzWvBar{flex:none;display:flex;align-items:center;gap:10px;padding:max(8px,env(safe-area-inset-top)) 12px 8px;background:linear-gradient(180deg,#1b1012,#100a0b);border-bottom:1px solid rgba(231,184,45,.5)}
+#wzWebView button{font:800 12px/1 Arial,sans-serif;letter-spacing:1.5px;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:9px 14px;cursor:pointer}
+#wzWebView button:active{background:rgba(231,184,45,.35)}
+#wzWebView .wzWvTitle{flex:1;text-align:center;font:800 13px Georgia,serif;letter-spacing:3px;color:#ffd85a}
+#wzWebView .wzWvLoad{position:absolute;left:0;right:0;top:56px;text-align:center;color:#ccc;font:700 12px Arial,sans-serif;letter-spacing:3px;pointer-events:none}
+#wzWebView iframe{flex:1;width:100%;border:0;background:#fff}
+</style>
+<script>
+function wzOpenWeb(url) {
+  try { if (document.exitPointerLock) document.exitPointerLock(); } catch (e) {}
+  // Inside the Claude preview (claudeusercontent.com) the sandbox CSP blocks embedding other sites (ERR_BLOCKED_BY_CSP): open a normal tab instead.
+  try { if (/claudeusercontent\.com$/i.test(location.hostname)) { const w = window.open(url, "_blank", "noopener"); if (w) return; } } catch (e) {}
+  let w = document.getElementById("wzWebView");
+  if (!w) {
+    w = document.createElement("div"); w.id = "wzWebView";
+    w.innerHTML = '<div class="wzWvBar"><button type="button" class="wzWvBack">&larr; BACK</button><span class="wzWvTitle">NEW GAME</span><button type="button" class="wzWvFull">OPEN FULL PAGE</button></div><div class="wzWvLoad">LOADING...</div><iframe allow="fullscreen; autoplay; gamepad; accelerometer; gyroscope; clipboard-write" referrerpolicy="no-referrer-when-downgrade" title="New game"></iframe>';
+    document.body.appendChild(w);
+    const f = w.querySelector("iframe"), ld = w.querySelector(".wzWvLoad");
+    f.addEventListener("load", () => { ld.style.display = "none"; });
+    const close = () => { w.classList.remove("on"); try { f.src = "about:blank"; } catch (e) {} };
+    w.querySelector(".wzWvBack").addEventListener("click", close);
+    w.querySelector(".wzWvFull").addEventListener("click", () => { const u = w._url || url; try { const nw = window.open(u, "_blank", "noopener"); if (nw) return; } catch (e) {} window.location.href = u; });   // if the site refuses to be embedded
+    window.addEventListener("keydown", ev => { if (ev.key === "Escape" && w.classList.contains("on")) { ev.stopPropagation(); close(); } }, true);
+  }
+  w._url = url;
+  w.querySelector(".wzWvLoad").style.display = "block";
+  w.querySelector("iframe").src = url;
+  w.classList.add("on");
+}
+(function () {
+  const c = document.getElementById("wzLobbyPromo");
+  if (c) c.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); wzOpenWeb("https://fightkaro.com/"); });
+})();
+</script>
 </body>
 </html>
 
@@ -6835,6 +6941,13 @@ frame();
 #menuSubPanel.wzSide .modeCard.selected h3{color:#ffcf50!important}
 #menuSubPanel .crBy b{color:#ffcf50;letter-spacing:1px}
 #menuSubPanel a{color:#ffcf50;text-decoration:none;border-bottom:1px solid rgba(255,207,80,.5)}
+/* "My New game" promo card in CREDITS */
+#menuSubPanel a.wzPromo{display:flex;align-items:center;gap:12px;margin-top:14px;padding:8px;border:1px solid rgba(190,55,48,.45);border-radius:4px;background:rgba(0,0,0,.28);color:#fff;text-decoration:none}
+#menuSubPanel a.wzPromo:hover,#menuSubPanel a.wzPromo:active{background:rgba(150,20,25,.3)}
+#menuSubPanel a.wzPromo img{width:76px;height:76px;object-fit:cover;border-radius:3px;display:block;flex:none}
+#menuSubPanel .wzPromoTxt{display:flex;flex-direction:column;gap:9px;min-width:0}
+#menuSubPanel .wzPromoTxt b{font:700 15px Georgia,'Times New Roman',serif;letter-spacing:.5px;color:#fff;text-shadow:0 1px 4px #000}
+#menuSubPanel .wzPromoPlay{align-self:flex-start;padding:6px 18px;background:#e7b82d;color:#111;font:900 12px Arial,sans-serif;letter-spacing:1.5px;border-radius:3px}
 </style>
 
 
@@ -7465,5 +7578,5 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   text-align:center!important;
 }
 /* Kill/streak text is replaced by the existing audio announcement only */
-#killpop,#streakFlash{display:none!important;visibility:hidden!important;opacity:0!important;}
+#killpop:not(.kf),#streakFlash{display:none!important;visibility:hidden!important;opacity:0!important;}
 </style>
