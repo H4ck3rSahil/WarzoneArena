@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <link rel="manifest" href="./manifest.json">
+<link rel="preload" as="video" href="./intro.mp4" type="video/mp4">
+<link rel="preload" as="video" href="./lobby.mp4" type="video/mp4">
 <meta name="theme-color" content="#080b10">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -490,7 +492,7 @@ body:has(#hitmarker.show) #crosshair #dot{background:#ff3b3b;transform:scale(1.5
 
 <!-- ===== INTRO VIDEO (intro.mp4 isi folder mein hona chahiye) ===== -->
 <div id="introSplash">
-  <video id="introVideo" src="intro.mp4" playsinline preload="auto"></video>
+  <video id="introVideo" src="intro.mp4" playsinline muted autoplay preload="auto"></video>
   <button id="introSkip" type="button">Skip</button>
   <button id="introSound" type="button">🔊 Tap for sound</button>
 </div>
@@ -535,13 +537,10 @@ canvas,#c{border:0!important;outline:0!important}
   vid.addEventListener('ended',closeIntro);
   vid.addEventListener('error',closeIntro);
   var snd=document.getElementById('introSound');
-  function unmute(){ vid.muted=false; vid.volume=1; snd.style.display='none'; }
-  snd.addEventListener('click',function(e){ e.stopPropagation(); unmute(); });
-  ['pointerdown','keydown','touchstart'].forEach(function(ev){ document.addEventListener(ev,function h(){ if(!done&&vid.muted) unmute(); document.removeEventListener(ev,h); },{once:true}); });
-  // pehle awaaz ke saath try, browser roke to muted chalao + "Tap for sound"
-  vid.muted=false;
+  if(snd) snd.style.display='none';
+  vid.muted=true; vid.playsInline=true;
   var p=vid.play();
-  if(p&&p.catch) p.catch(function(){ vid.muted=true; var q=vid.play(); if(q&&q.catch) q.catch(function(){}); snd.style.display='block'; });
+  if(p&&p.catch) p.catch(function(){ closeIntro(); });
 })();
 </script>
   
@@ -692,7 +691,7 @@ document.addEventListener("click", function (e) {
 
 <div id="overlay">
   <!-- Lobby background video: keep WarzoneArena/lobby.mp4 beside this HTML in the WarzoneArena folder -->
-  <video id="lobbyVideo" src="./WarzoneArena/lobby.mp4" autoplay muted loop playsinline preload="auto" aria-hidden="true"></video>
+  <video id="lobbyVideo" src="./lobby.mp4" autoplay muted loop playsinline preload="auto" aria-hidden="true"></video>
   <div id="menuScene"></div>
   <section id="menuLeft">
     <div id="ovSub">SURVIVE THE WAVES</div><div id="ovStats"></div>
@@ -767,7 +766,7 @@ document.addEventListener("click", function (e) {
   ['pointerdown','touchstart','click','keydown'].forEach(ev=>document.addEventListener(ev,unlockLobbySound,{passive:true}));
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncLobbyVideo();else v.pause();});
   setInterval(syncLobbyVideo,400);
-  v.addEventListener('error',()=>{if(!v.dataset.fallback){v.dataset.fallback='1';v.src='./lobby.mp4';v.load();syncLobbyVideo();}else console.warn('Lobby video could not load:',v.currentSrc);});
+  v.addEventListener('error',()=>{if(!v.dataset.fallback){v.dataset.fallback='1';v.src='./WarzoneArena/lobby.mp4';v.load();syncLobbyVideo();}else console.warn('Lobby video could not load:',v.currentSrc);});
   syncLobbyVideo();
 })();
 </script>
@@ -5049,9 +5048,9 @@ function updateWaves(dt) {
     else trShield = Math.max(trShield, 0.6);
   }
   if (gameMode === "clash") {
-    // Training uses a steady 10-bot practice arena; co-op rooms remain player-only.
+    // Training uses exactly 4 bots; co-op rooms remain player-only.
     if (gameMode === "clash" && tdmState === "active" && isTraining() && !trNoBots()) {
-      while (enemies.length < 10) spawnEnemy();
+      while (enemies.length < 4) spawnEnemy();
     }
     return;
   }
@@ -5196,7 +5195,7 @@ function updatePlayer(dt) {
   sprintBlend += ((sprint && hs > (isTraining() ? 1.15 : 3) ? 1 : 0) - sprintBlend) * Math.min(1, dt * 8);
 
   const normalFov = NORMAL_FOV;
-  const aimFov = gameMode === "clash" ? 38 : 24;
+  const aimFov = curIdx === 1 ? 11.7 : (gameMode === "clash" ? 38 : 24);
   const fov = lerp(normalFov, aimFov, adsT) + 7 * sprintBlend;   // sprint: thoda wide FOV = speed feel
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
   eyeCur += (eyeTarget() - eyeCur) * Math.min(1, dt * 12);
@@ -5451,10 +5450,10 @@ function resetGame(mode) {
       tdmState = "countdown";
       tdmCountdownTimer = 5; window._tdmLastCount = null;
     } else {
-      // Training gets a 10-bot HARD practice group; regular Clash and PvP stay unchanged.
+      // Training gets exactly 4 bots; regular Clash and PvP stay unchanged.
       tdmState = "active";
       if (gameMode === "clash" && isTraining() && !trNoBots()) {
-        for (let i = 0; i < 10; i++) spawnEnemy();
+        for (let i = 0; i < 4; i++) spawnEnemy();
       } else if (gameMode === "clash" && !trNoBots()) {
         for (let i = 0; i < 4; i++) spawnEnemy();
       }
@@ -5499,11 +5498,12 @@ let trainingDeathAudio = null, trainingDeathToken = 0;
 let trainingDeathsWithoutKill = 0;
 let trainingReviveTimer = null, wzReviveHold = false, wzReviveHoldT = 0;
 function playTrainingDeathAndRevive() {
+  if (state !== "dead" || player.hp > 0) return;
   const token = ++trainingDeathToken;
   if (trainingReviveTimer) { clearTimeout(trainingReviveTimer); trainingReviveTimer = null; }   // sirf ek hi revive timer
   if (trainingDeathAudio) { try { trainingDeathAudio.pause(); trainingDeathAudio.currentTime = 0; } catch (_) {} }
   const revive = () => {
-    if (token !== trainingDeathToken || !isTraining()) return;
+    if (token !== trainingDeathToken || !isTraining() || state !== "dead" || player.hp > 0) { trainingReviveTimer = null; return; }
     endKillCam();
     wzSafePos = null; trainingPortalHold = 0;   // purani 'safe' jagah ya portal timer revive ke baad dobara teleport na kare
     let sp = getTrainingSpawn(trainingMapModel);
@@ -7556,7 +7556,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
  document.addEventListener('pointerdown',e=>{if(wheel&&wheel.classList.contains('open')&&!e.target.closest('#wzaEmoteWheel')&&!e.target.closest('#wzaEmoteBtn')&&!e.target.closest('#wzaEmoteBtnTc'))closeWheel();},true);
  document.addEventListener('keydown',e=>{
   if(e.repeat||e.target.closest('input,textarea,select,button'))return;
-  if(wheel&&wheel.classList.contains('open')&&e.code==='Enter'){e.preventDefault();e.stopPropagation();playEmote(selectedEmote);return;}
+  if(wheel&&wheel.classList.contains('open')&&(e.code==='CapsLock'||e.code==='Enter')){e.preventDefault();e.stopPropagation();playEmote(selectedEmote);return;}
   if(e.code===binds.prone&&typeof state!=='undefined'&&state==='playing'){e.preventDefault();toggleProne();}
   if(e.code===binds.emote&&typeof state!=='undefined'&&state==='playing'){e.preventDefault();toggleWheel();}
   if(e.code==='Escape')closeWheel();
