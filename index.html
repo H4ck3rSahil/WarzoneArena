@@ -2181,6 +2181,7 @@ let squadMapModel = null, trainingMapModel = null, clashVariant = "squad";
 const TRAINING_MAP_SIZE = 100; // <-- training map ka size (bada number = bada map). Feel theek na lage to ye badlo.
 function isTraining() { return gameMode === "clash" && clashVariant === "training"; }
 window.wzCustomSpawns = window.wzCustomSpawns || [];
+window.WZA_FIXED_TRAINING_SPAWN = null; // After capture, replace null with {x,y,z,yaw}; this becomes the shared spawn for every visitor.
 function wzPickCustomSpawn(){var a=window.wzCustomSpawns||[];if(!a.length)return null;var i=Math.floor(Math.random()*a.length);return a[i];}
 
 // Bots (Training + Clash Squad) ek jaisi AI/map-aware movement use karte hain
@@ -2330,6 +2331,7 @@ function trSpawnOccupied(sp, rad) {
   return others.some(o => Math.hypot(sp.x - o.x, sp.z - o.z) < rad);
 }
 function trainingPlayerSpawn(avoid) {
+  if (window.WZA_FIXED_TRAINING_SPAWN && [window.WZA_FIXED_TRAINING_SPAWN.x,window.WZA_FIXED_TRAINING_SPAWN.y,window.WZA_FIXED_TRAINING_SPAWN.z].every(Number.isFinite)) return {...window.WZA_FIXED_TRAINING_SPAWN};
   if(window.wzCustomSpawns&&window.wzCustomSpawns.length){const cp=wzPickCustomSpawn();if(cp)return {...cp};}
   // Respawn / start / restart: SIRF TRAIN_SPAWNS ke 5 points. Jo point doosre player/bot se door aur khali ho wahi chunte hain.
   const five = (typeof trainingSpawnPoints === 'function') ? trainingSpawnPoints() : [];
@@ -3951,6 +3953,7 @@ let state = "menu";
 let T = 0, wave = 0, toSpawn = 0, spawnTimer = 0, waveBreak = 0, deadT = 0, lastHit = -99;
 let curIdx = 0, reloadT = 0, switchT = 0, pendingIdx = 0, swapped = true, nextShot = 0;
 let bloom = 0, recoilOff = 0, vmKick = 0, flashT = 0;
+let wzaFireStreak = 0, wzaLastShotMs = 0, wzaFireStartMs = 0;
 let _sprintFxEl = null, _sprintFxLast = "";
 let bobT = 0, lastStepIdx = 0, ads = false, adsT = 0, sprintBlend = 0, sprintToggle = false;
 let adsToggle = false, crouchToggle = false;
@@ -3973,6 +3976,7 @@ const enemies = [], teammates = [], corpses = [], pickups = [], lootboxes = [], 
 const glooWalls = [];
 let glooCount = 0;
 let medkitCount = 0, medkitLastUse = 0, medkitHealTimer = null, medkitHealPending = false, medkitHudInterval = null, medkitHudStart = 0, wzMedSnd = null;
+let medkitStartPos = null;
 const MEDKIT_HEAL = 70, MEDKIT_USE_DELAY = 3000;
 const WALK_SPEED_MULT = 0.85, SPRINT_SPEED_MULT = 0.85, JUMP_HEIGHT_MULT = 0.7;   // walk -15%, sprint -15%, jump height -30%
 let decalI = 0;
@@ -4288,6 +4292,38 @@ function castRay(origin, dir, range) {
   const hits = raycaster.intersectObjects(targets, true);
   return hits.length ? hits[0] : null;
 }
+function wzaCloseAimAssist(origin, forward) {
+  if (!Array.isArray(enemies) || !enemies.length) return forward;
+  const maxRange = isTraining() ? 30 : 26;
+  const minDot = Math.cos((ads ? 11 : 7.5) * Math.PI / 180);
+  let bestDir = null, bestScore = -Infinity;
+  for (const e of enemies) {
+    if (!e || e.dead || !e.root || !e.root.position) continue;
+    const scale = e.scale || 1;
+    // Dono hit-zones check karo: torso aur head. Crosshair jis zone ke kareeb ho,
+    // assist usi par lock karega; head ko tabhi preference milegi jab aim aligned ho.
+    const zones = [
+      { y: 1.18 * scale, bonus: 0 },
+      { y: 1.70 * scale, bonus: 0.006 }
+    ];
+    for (const zone of zones) {
+      const target = e.root.position.clone();
+      target.y += zone.y;
+      const delta = target.sub(origin), dist = delta.length();
+      if (dist < 0.01 || dist > maxRange) continue;
+      const dir = delta.multiplyScalar(1 / dist);
+      const dot = forward.dot(dir);
+      if (dot < minDot) continue;
+      const score = dot - dist * 0.00055 + zone.bonus;
+      if (score > bestScore) { bestScore = score; bestDir = dir; }
+    }
+  }
+  if (bestDir) {
+    // Scope mein stronger soft-lock, hip-fire mein halka pull.
+    forward.lerp(bestDir, ads ? 0.68 : 0.43).normalize();
+  }
+  return forward;
+}
 function tryShoot() {
   if (medkitHealPending) cancelMedkitHeal();
   if ((gameMode === "tdm" || gameMode === "clash" || gameMode === "pvp") && tdmState !== "active") return;
@@ -4307,6 +4343,7 @@ function tryShoot() {
   // TPP: camera shoulder/peeche shift hota hai par goli player ki aankh se nikalti thi -> dot ke LEFT me lagti thi.
   // Ab ray wahi line hai jo TPP camera ke centre (crosshair dot) se guzarti hai.
   try { if (typeof window.wzaTppShotOrigin === "function") { const _to = window.wzaTppShotOrigin(fwd); if (_to) origin = _to; } } catch (_) {}
+  fwd.copy(wzaCloseAimAssist(origin, fwd));
   const mw = muzzleWorld();
   let anyHit = false;
 
@@ -4323,11 +4360,22 @@ function tryShoot() {
   if (gameMode === "pvp" && pvpConnected) pvpSend({t:"shot",x:origin.x,y:origin.y,z:origin.z,dx:fwd.x,dy:fwd.y,dz:fwd.z,dmg:w.dmg,w:w.snd});
 
   gunSound(w.snd);
-  const k = w.kick * (1 - adsT * 0.4);
+  const shotNow = performance.now();
+  if (shotNow - wzaLastShotMs > Math.max(320, w.rate * 2200)) {
+    wzaFireStreak = 0;
+    wzaFireStartMs = shotNow;
+  }
+  if (wzaFireStreak === 0) wzaFireStartMs = shotNow;
+  wzaFireStreak = Math.min(100, wzaFireStreak + 1);
+  wzaLastShotMs = shotNow;
+  // Continuous firing builds recoil gradually, reaching a stronger kick after a few seconds.
+  const fireDuration = Math.max(0, (shotNow - wzaFireStartMs) / 1000);
+  const sustainedFireMultiplier = 1 + Math.min(1.55, fireDuration * 0.48);
+  const k = w.kick * (1 - adsT * 0.4) * sustainedFireMultiplier;
   recoilOff += k * 0.7;
   player.pitch += k * 0.3;
   player.yaw += rand(-1, 1) * k * 0.35;
-  bloom = Math.min(w.maxBloom, bloom + w.bloom);
+  bloom = Math.min(w.maxBloom, bloom + w.bloom * sustainedFireMultiplier);
   vmKick = Math.min(1.6, vmKick + w.vmKick);
   flashT = 0.05;
   const fl = guns[curIdx].userData.flash;
@@ -5239,6 +5287,7 @@ function updateWaves(dt) {
 let mobileMoveX = 0, mobileMoveY = 0, mobileFire = false, mobileJump = false;
 const WZ_SPEED_MUL = 0.6;   // chalne/daudne ki speed ka multiplier: 0.6 = 40% kam
 function updatePlayer(dt) {
+  if (performance.now() - wzaLastShotMs > 420) wzaFireStreak = 0;
   if (gameMode === "tdm" && tdmState === "countdown") return;
   if (gameMode === "pvp" && pvpRoundPhase !== "fight" && pvpRoundPhase !== "ended") { player.vel.set(0,0,0); return; }
   const w = W[curIdx];
@@ -5478,6 +5527,7 @@ function wzMedkitHud(on, elapsed) {
 function cancelMedkitHeal(reason = 'FIRING CANCELLED HEALING') {
   if (!medkitHealPending) return;
   medkitHealPending = false;
+  medkitStartPos = null;
   wzMedkitHud(false,0);
   try { wzSfxStop(wzMedSnd); wzMedSnd = null; } catch (_) {}
   if (medkitHealTimer !== null) clearTimeout(medkitHealTimer);
@@ -5493,16 +5543,19 @@ function useMedkit() {
   const maxHp = gameMode === "pvp" ? PVP_MAX_HP : 100;
   if (medkitCount <= 0) { feed('<span class="v">NO MEDKIT — KILL AN ENEMY TO GET LOOT</span>'); return; }
   if (player.hp >= maxHp) { feed('<span class="k">HEALTH ALREADY FULL</span>'); return; }
+  if (Math.hypot(player.vel.x, player.vel.z) > 0.12 || Math.abs(mobileMoveX) > 0.05 || Math.abs(mobileMoveY) > 0.05) { feed('<span class="v">STOP MOVING TO USE MEDKIT</span>'); return; }
   medkitCount--;
   medkitHealPending = true;
-  medkitHudStart=performance.now(); wzMedkitHud(true,0); if(medkitHudInterval!==null)clearInterval(medkitHudInterval); medkitHudInterval=setInterval(()=>{const elapsed=performance.now()-medkitHudStart;wzMedkitHud(true,elapsed);},50);
+  medkitStartPos = {x:player.pos.x,z:player.pos.z};
+  medkitHudStart=performance.now(); wzMedkitHud(true,0); if(medkitHudInterval!==null)clearInterval(medkitHudInterval); medkitHudInterval=setInterval(()=>{ if(medkitHealPending && medkitStartPos && Math.hypot(player.pos.x-medkitStartPos.x,player.pos.z-medkitStartPos.z)>0.055){cancelMedkitHeal('MOVEMENT CANCELLED HEALING');return;} const elapsed=performance.now()-medkitHudStart;wzMedkitHud(true,elapsed);},50);
   try { wzSfxStop(wzMedSnd); wzMedSnd = wzSfxPlay("medkit", 1) || null; } catch (_) {}
-  feed('<span class="k">USING MEDKIT</span> — HEALING IN 3 SECONDS. FIRING CANCELS IT.');
+  feed('<span class="k">USING MEDKIT</span> — STAY STILL');
   updateResourceHUD();
   medkitHealTimer = setTimeout(() => {
     medkitHealTimer = null;
     if (!medkitHealPending || state !== "playing") { medkitHealPending = false; return; }
     medkitHealPending = false;
+    medkitStartPos = null;
     wzMedkitHud(false,0);
     const cap = gameMode === "pvp" ? PVP_MAX_HP : 100;
     player.hp = Math.min(cap, player.hp + MEDKIT_HEAL);
@@ -7066,7 +7119,21 @@ function wzOpenWeb(url) {
 
 
 <script id="wzaTrainingSpawnSetter">
-(()=>{const b=document.createElement('button');b.id='wzaSpawnSetBtn';b.innerHTML='<small>SPAWN</small><b>5</b>';b.style.cssText='position:fixed;left:18px;top:50%;transform:translateY(-50%);z-index:10050;width:76px;height:76px;border-radius:50%;border:2px solid #a8ffc0;background:radial-gradient(circle at 30% 25%,#59ef83,#078b3b 70%);color:white;box-shadow:0 0 18px #20e87999;font-weight:1000;font-style:italic;display:none;flex-direction:column;align-items:center;justify-content:center;pointer-events:auto';b.querySelector;document.body.appendChild(b);b.addEventListener('pointerdown',e=>{e.stopPropagation();});b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();if(!window.wzCustomSpawns)window.wzCustomSpawns=[];if(window.wzCustomSpawns.length>=5)return;window.wzCustomSpawns.push({x:player.pos.x,y:player.pos.y,z:player.pos.z,yaw:player.yaw});const n=5-window.wzCustomSpawns.length;b.querySelector('b').textContent=String(n);try{banner('SPAWN POINT '+window.wzCustomSpawns.length+' SET','CUSTOM TRAINING SPAWN SAVED');}catch(_){}if(!n)b.style.display='none';});function sync(){const tr=gameMode==='clash'&&clashVariant==='training'&&(state==='playing'||state==='paused')&&window.wzCustomSpawns.length<5;b.style.display=tr?'flex':'none';b.querySelector('b').textContent=String(5-window.wzCustomSpawns.length);requestAnimationFrame(sync);}sync();})();
+(()=>{
+  // Setup helper: open the game URL with #setspawn, enter Training, stand at the desired spot, then capture once.
+  if (location.hash !== '#setspawn') return;
+  const b=document.createElement('button'); b.id='wzaSpawnCaptureAdmin'; b.textContent='SET FIXED SPAWN HERE';
+  b.style.cssText='position:fixed;left:14px;top:50%;transform:translateY(-50%);z-index:10050;padding:14px 16px;border-radius:10px;border:2px solid #a8ffc0;background:#078b3b;color:white;font-weight:900;cursor:pointer;';
+  document.body.appendChild(b);
+  b.addEventListener('click',e=>{
+    e.preventDefault();e.stopPropagation();
+    if (typeof isTraining === 'function' && !isTraining()) { alert('Pehle Training mode start karo, phir desired spawn position par khade hokar button dabao.'); return; }
+    if (!window.player || !player.pos) { alert('Game load hone do aur Training mode mein aao.'); return; }
+    const p={x:Number(player.pos.x.toFixed(4)),y:Number(player.pos.y.toFixed(4)),z:Number(player.pos.z.toFixed(4)),yaw:Number((player.yaw||0).toFixed(5))};
+    prompt('Spawn position captured. Is JSON ko copy karke chat mein bhejo. Main ise HTML ke WZA_FIXED_TRAINING_SPAWN mein permanently hardcode kar dunga:',JSON.stringify(p));
+    b.textContent='POSITION CAPTURED'; b.style.background='#555';
+  });
+})();
 </script>
 </body>
 </html>
