@@ -926,7 +926,7 @@ for (let i = 1; i <= 10; i++) WZ_CHARS.push({ name: WZ_NAMES[i - 1], file: "mode
 WZ_CHARS.push({ name: "DEFAULT BOT", file: null, rot: 0, scale: 1, p: null, isDefaultBot: true, isBlueSoldier: true });
 const WZ_FIRST_ENEMY = 11; // indices 0..10 are selectable; enemy NPC models begin at 11
 for (let i = 1; i <= 3; i++) WZ_CHARS.push({ name: "ENEMY " + i, file: "models/enemie" + i + ".glb", rot: 0, scale: 1, p: null });
-WZ_CHARS[2].bright = 2.0; // groom3 (Freestyle) brightness 200%
+WZ_CHARS[3].bright = 2.0; // groom4 (Kratos) brightness 200%
 try { const fl = JSON.parse(localStorage.getItem("wzaFlip") || "{}"); WZ_CHARS.forEach((c, i) => { if (fl[i]) c.rot = Math.PI; }); } catch (e) {}
 function wzSaveFlip() { try { const o = {}; WZ_CHARS.forEach((c, i) => { if (c.rot) o[i] = 1; }); localStorage.setItem("wzaFlip", JSON.stringify(o)); } catch (e) {} }
 let wzMyChar = 1; // default: groom2 (rigged). Menu se badal sakte ho.
@@ -1240,8 +1240,6 @@ function wzBuildTpl(def, gltf) {
   });
   scene.updateMatrixWorld(true);
   if (skinned) { const oriented = wzAutoOrient(scene); if (oriented) console.info("[WZ] orientation sahi ki:", def.file); }
-  // Freestyle model was imported upside down; correct its local vertical orientation.
-  if (def.name === "FREESTYLE") { scene.rotation.x += Math.PI; scene.updateMatrixWorld(true); }
   const box = wzMeasure(scene, skinned, bones);
   const size = box.getSize(new THREE.Vector3());
   const h = size.y > 1e-6 ? size.y : 1;
@@ -5327,7 +5325,7 @@ function updatePlayer(dt) {
   sprintBlend += ((sprint && hs > (isTraining() ? 1.15 : 3) ? 1 : 0) - sprintBlend) * Math.min(1, dt * 8);
 
   const normalFov = NORMAL_FOV;
-  const aimFov = (curIdx === 0 || curIdx === 1) ? 17.1 : 24; // AK-47 uses the same aim zoom as AWM
+  const aimFov = curIdx === 1 ? 17.1 : 24;
   const fov = lerp(normalFov, aimFov, adsT) + 7 * sprintBlend;   // sprint: thoda wide FOV = speed feel
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
   eyeCur += (eyeTarget() - eyeCur) * Math.min(1, dt * 12);
@@ -5499,7 +5497,7 @@ function useMedkit() {
   medkitHealPending = true;
   medkitHudStart=performance.now(); wzMedkitHud(true,0); if(medkitHudInterval!==null)clearInterval(medkitHudInterval); medkitHudInterval=setInterval(()=>{const elapsed=performance.now()-medkitHudStart;wzMedkitHud(true,elapsed);},50);
   try { wzSfxStop(wzMedSnd); wzMedSnd = wzSfxPlay("medkit", 1) || null; } catch (_) {}
-  // Countdown is shown by the compact medkit HUD; no extra feed notification.
+  feed('<span class="k">USING MEDKIT</span> — HEALING IN 3 SECONDS. FIRING CANCELS IT.');
   updateResourceHUD();
   medkitHealTimer = setTimeout(() => {
     medkitHealTimer = null;
@@ -6791,7 +6789,7 @@ function frame() {
   const showVM = (state === "playing" || state === "paused" || state === "dead") && !killCam && !emoteCamOn;
   if (!_sprintFxEl) _sprintFxEl = document.getElementById("sprintFx");
   if (_sprintFxEl) { const o = (state === "playing" && !killCam && !emoteCamOn) ? (sprintBlend * (isTraining() ? 1 : 0.85)).toFixed(2) : "0"; if (o !== _sprintFxLast) { _sprintFxLast = o; _sprintFxEl.style.opacity = o; } }
-  const awmScoped = state === "playing" && (curIdx === 0 || curIdx === 1) && adsToggle;
+  const awmScoped = state === "playing" && curIdx === 1 && adsToggle;
   const rifleScoped = false;
   const scopeEl = document.getElementById("awmScope");
   const rifleScopeEl = document.getElementById("rifleScope");
@@ -7813,13 +7811,4 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
 }
 /* Kill/streak text is replaced by the existing audio announcement only */
 #killpop:not(.kf),#streakFlash{display:none!important;visibility:hidden!important;opacity:0!important;}
-</style>
-
-<style id="wzaFreestyleScopeMedkitPolish">
-/* Match AK-47 aiming view to the existing AWM scope overlay. */
-#medkitHealHud{width:88px;height:110px}
-#medkitHealHud svg{width:84px;height:84px}
-#medkitHealHud>b{top:23px;font-size:30px}
-#medkitCountdown{font-size:20px}
-@media(max-width:700px){#medkitHealHud{width:66px;height:88px}#medkitHealHud svg{width:64px;height:64px}#medkitHealHud>b{top:17px;font-size:23px}#medkitCountdown{font-size:16px}}
 </style>
