@@ -908,7 +908,7 @@ const assetReady = Object.keys(modelFiles).map(key => loadGLB(key, modelFiles[ke
    - Kisi model ka face ulta ho to neeche WZ_CHARS mein us model ki rot: Math.PI kar do. */
 const WZ_HEIGHT = 1.85;
 const WZ_ANIM_DIR = "models/";
-const WZ_ANIM_FILES = { idle: "Idle.fbx", run: "Running.fbx", jump: "jumping.fbx", death: "death.fbx", crouch: "crouch.fbx", walk: "Walking.fbx" };
+const WZ_ANIM_FILES = { idle: "Idle.fbx", run: "Running.fbx", jump: "jumping.fbx", death: "death.fbx", prone: "prone.fbx", crouch: "crouch.fbx", walk: "Walking.fbx" };
 const WZ_CHARS = [];
 const WZ_NAMES = ["KELLY", "TUNG TUNG SAHUR", "FREESTYLE", "KRATOS", "CARL JOHNSON", "SCORPION", "IRON MAN", "MADARA UCHIHA", "MINATO NAMIKAZE", "OBITO UCHIHA"];
 for (let i = 1; i <= 10; i++) WZ_CHARS.push({ name: WZ_NAMES[i - 1], file: "models/groom" + i + ".fbx", rot: 0, scale: 1, p: null });
@@ -1421,6 +1421,21 @@ function wzApplyChar(soldier, idx) {
   wzDress(soldier, idx);
 }
 function wzDressEnemy(soldier) { wzDress(soldier, WZ_FIRST_ENEMY + Math.floor(Math.random() * 3)); }
+// Console me wzAnimReport() chalao: groom1..10 par Idle/Running/jumping/death/prone ke kitne tracks bane (0 = us groom par wo animation nahi chali).
+window.wzAnimReport = async function () {
+  await wzAnim.ready;
+  const keys = ["idle", "run", "jump", "death", "prone"], rows = [];
+  for (let i = 0; i < 10; i++) {
+    const tpl = await wzLoadChar(i);
+    if (!tpl) { rows.push({ groom: "groom" + (i + 1), rig: "MODEL NOT LOADED" }); continue; }
+    if (!tpl.clips) { try { wzInstance(tpl); } catch (_) {} }
+    const r = { groom: "groom" + (i + 1), name: WZ_CHARS[i].name, rig: tpl.rolesOK ? "ok" : (tpl.compat ? "mixamo" : "NO MATCH") };
+    keys.forEach(k => { r[k] = (tpl.clips && tpl.clips[k]) ? tpl.clips[k].tracks.length : 0; });
+    rows.push(r);
+  }
+  console.table(rows); return rows;
+};
+
 Promise.all(assetReady).then(() => { for (let i = WZ_FIRST_ENEMY; i < WZ_CHARS.length; i++) wzLoadChar(i); });
 
 // ---- Grooming menu (3D preview) ----
@@ -4160,7 +4175,10 @@ function tryShoot() {
   const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
   const spread = currentSpread();
-  const origin = camera.position.clone();
+  let origin = camera.position.clone();
+  // TPP: camera shoulder/peeche shift hota hai par goli player ki aankh se nikalti thi -> dot ke LEFT me lagti thi.
+  // Ab ray wahi line hai jo TPP camera ke centre (crosshair dot) se guzarti hai.
+  try { if (typeof window.wzaTppShotOrigin === "function") { const _to = window.wzaTppShotOrigin(fwd); if (_to) origin = _to; } } catch (_) {}
   const mw = muzzleWorld();
   let anyHit = false;
 
@@ -7529,6 +7547,16 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   if(tppZoom>0.01){camera.fov=Math.max(30,camera.fov-11*tppZoom);camera.updateProjectionMatrix();}
   return true;
  }
+ // TPP shot origin: tppCam camera ko  eye - dir*dist + right*side - (0,0.08S,0)  par rakhta hai. Camera-centre ray (dot) us point se dir ke saath chalti hai,
+ // isliye eye ke depth (t=dist) par wo ray eye + right*side - (0,0.08S,0) par hoti hai. Goli wahin se nikalo -> hamesha dot par lagegi,
+ // aur ray player ke peeche ki deewar/objects se nahi takrayegi.
+ const _tppShotRight=new THREE.Vector3(),_tppShotOut=new THREE.Vector3();
+ window.wzaTppShotOrigin=function(fwd){
+  if(!tppOn||emoteBusy||typeof state==='undefined'||state!=='playing'||player.hp<=0||activeAim())return null;
+  const S=avatarScale(),side=(0.38+0.06*tppZoom)*S;
+  _tppShotRight.crossVectors(fwd,_tppUp).normalize();
+  return _tppShotOut.copy(camera.position).addScaledVector(_tppShotRight,side).add(new THREE.Vector3(0,-0.08*S,0)).clone();
+ };
  {const _emoteCamOrig=window.wzaEmoteCam;window.wzaEmoteCam=function(){return _emoteCamOrig()?true:tppCam();};}
  document.addEventListener('keydown',e=>{if(e.code===binds.tpp&&!e.repeat&&typeof state!=='undefined'&&state==='playing'){e.preventDefault();toggleTpp();}});
  function playEmote(n){
