@@ -874,10 +874,11 @@ camera.rotation.order = "YXZ";
 scene.add(camera);
 
 const vmScene = new THREE.Scene();
-const vmCamera = new THREE.PerspectiveCamera(60, Math.max(1, innerWidth) / Math.max(1, innerHeight), 0.01, 10);
+const vmCamera = new THREE.PerspectiveCamera(52, Math.max(1, innerWidth) / Math.max(1, innerHeight), 0.005, 20);
+vmCamera.position.set(0, 0, 0);
 vmScene.add(vmCamera);
-vmScene.add(new THREE.AmbientLight(0xffffff, 0.85));
-const vmSun = new THREE.DirectionalLight(0xffffff, 0.9);
+vmScene.add(new THREE.AmbientLight(0xffffff, 1.15));
+const vmSun = new THREE.DirectionalLight(0xffffff, 1.15);
 vmSun.position.set(1, 2, 1.5);
 vmScene.add(vmSun);
 
@@ -920,7 +921,7 @@ const WZ_ANIM_DIR = "models/";
 const WZ_ANIM_FILES = { idle: "Idle.fbx", groom3idle: "groom3idle.fbx", run: "Running.fbx", jump: "jumping.fbx", death: "death.fbx", prone: "prone.fbx", crouch: "crouch.fbx", walk: "Walking.fbx" };
 const WZ_CHARS = [];
 const WZ_NAMES = ["KELLY", "TUNG TUNG SAHUR", "FREESTYLE", "KRATOS", "CARL JOHNSON", "SCORPION", "IRON MAN", "MADARA UCHIHA", "MINATO NAMIKAZE", "OBITO UCHIHA"];
-for (let i = 1; i <= 10; i++) WZ_CHARS.push({ name: WZ_NAMES[i - 1], file: "models/groom" + i + ".fbx", rot: 0, scale: 1, p: null });
+for (let i = 1; i <= 10; i++) WZ_CHARS.push({ name: WZ_NAMES[i - 1], file: "models/groom" + i + ".fbx", texture: i === 10 ? "textures/1.png" : null, rot: 0, scale: 1, p: null });
 // Selectable default player: use the same bot GLB already used by the game's enemy system.
 // It is a real GLB character (not a fake debug entry) and is also used by the gameplay avatar pipeline.
 WZ_CHARS.push({ name: "DEFAULT BOT", file: null, rot: 0, scale: 1, p: null, isDefaultBot: true, isBlueSoldier: true });
@@ -935,11 +936,11 @@ try { const v = parseInt(localStorage.getItem("wzaChar"), 10); if (v >= 0 && v <
 function wzNorm(n) { return String(n).replace(/^mixamorig:?/i, "").replace(/_\d+$/, ""); }
 
 // ---- Animations (FBX) ek baar load, cache ----
-const wzAnim = { clips: {}, objs: {}, ready: null };
+const wzAnim = { clips: {}, objs: {}, ready: null, groom3States: {} };
 wzAnim.ready = (function () {
   if (typeof THREE.FBXLoader !== "function") { console.error("[WZ] FBXLoader load nahi hua - animations band rahengi (static fallback chalega)."); return Promise.resolve(); }
   const loader = new THREE.FBXLoader();
-  return Promise.all(Object.keys(WZ_ANIM_FILES).map(k => new Promise(res => {
+  const jobs = Object.keys(WZ_ANIM_FILES).map(k => new Promise(res => {
     const base = WZ_ANIM_FILES[k], names = [base];
     [base.toLowerCase(), base.charAt(0).toUpperCase() + base.slice(1).toLowerCase()].forEach(n => { if (names.indexOf(n) < 0) names.push(n); });
     const urls = []; names.forEach(n => wzAssetCandidates(WZ_ANIM_DIR + n).forEach(u => { if (urls.indexOf(u) < 0) urls.push(u); }));
@@ -959,7 +960,56 @@ wzAnim.ready = (function () {
       }, undefined, () => next());
     };
     next();
-  })));
+  }));
+
+  // Groom3.fbx ke andar embedded animation clips hon to unhe shared source skeleton banao.
+  // Clip names se idle/run/walk/jump/death/prone/crouch states identify hote hain.
+  const groom3Job = new Promise(res => {
+    const urls = wzAssetCandidates("models/groom3.fbx");
+    let at = 0;
+    const next = () => {
+      if (at >= urls.length) { console.warn("[WZ] groom3.fbx animation source nahi mila; standard animation files fallback rahenge."); res(); return; }
+      const url = urls[at++];
+      loader.load(url, obj => {
+        const clips = obj && Array.isArray(obj.animations) ? obj.animations.filter(c => c && c.tracks && c.tracks.length) : [];
+        if (!clips.length) { console.warn("[WZ] groom3.fbx mein embedded animation clip nahi mila; standard clips fallback rahenge."); res(); return; }
+        try {
+          const cloneFn = (THREE.SkeletonUtils && THREE.SkeletonUtils.clone) ? THREE.SkeletonUtils.clone : (o => o.clone(true));
+          wzAnim.objs.groom3 = cloneFn(obj);
+        } catch (_) { wzAnim.objs.groom3 = obj; }
+        const rules = [
+          ["idle", /idle|stand|rest|breath/i],
+          ["run", /run|running|sprint/i],
+          ["walk", /walk|walking/i],
+          ["jump", /jump|leap/i],
+          ["death", /death|die|fall/i],
+          ["prone", /prone|crawl|lie/i],
+          ["crouch", /crouch|squat/i]
+        ];
+        clips.forEach(clip => {
+          const label = String(clip.name || "");
+          rules.forEach(([state, pattern]) => {
+            if (pattern.test(label) && !wzAnim.groom3States[state]) {
+              const key = "groom3_" + state;
+              wzAnim.clips[key] = clip;
+              wzAnim.groom3States[state] = key;
+            }
+          });
+        });
+        // Single/unnamed embedded clip ko safe idle default banao; baaki movement states
+        // existing FBX clips se chalenge, taaki idle animation ko jump/death mein na chalayein.
+        if (!Object.keys(wzAnim.groom3States).length) {
+          const clip = clips.slice().sort((a, b) => b.tracks.length - a.tracks.length)[0];
+          wzAnim.clips.groom3_idle = clip;
+          wzAnim.groom3States.idle = "groom3_idle";
+        }
+        console.info("[WZ] groom3.fbx embedded clips shared:", Object.keys(wzAnim.groom3States));
+        res();
+      }, undefined, next);
+    };
+    next();
+  });
+  return Promise.all(jobs.concat(groom3Job));
 })();
 
 // FBX clip -> model ke bone naam par retarget (sirf rotation, in-place; position tracks hata di)
@@ -1280,6 +1330,50 @@ function wzAssetCandidates(path) {
   } catch (_) {}
   return out;
 }
+
+const wzTextureCache = Object.create(null);
+function wzLoadTexture(path) {
+  if (!path) return Promise.resolve(null);
+  if (wzTextureCache[path]) return wzTextureCache[path];
+  wzTextureCache[path] = new Promise(resolve => {
+    if (typeof THREE.TextureLoader !== "function") { resolve(null); return; }
+    const textureLoader = new THREE.TextureLoader();
+    const urls = wzAssetCandidates(path); let at = 0;
+    const next = () => {
+      if (at >= urls.length) { console.warn("[WZ] Texture load fail:", path, urls); resolve(null); return; }
+      textureLoader.load(urls[at++], tex => {
+        tex.flipY = false; // FBX UVs use the same orientation as FBXLoader textures.
+        if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+        else if (THREE.sRGBEncoding !== undefined) tex.encoding = THREE.sRGBEncoding;
+        tex.anisotropy = Math.min(8, (renderer && renderer.capabilities && renderer.capabilities.getMaxAnisotropy) ? renderer.capabilities.getMaxAnisotropy() : 1);
+        tex.needsUpdate = true;
+        resolve(tex);
+      }, undefined, next);
+    };
+    next();
+  });
+  return wzTextureCache[path];
+}
+function wzApplySkinTexture(scene, texture, file) {
+  if (!scene || !texture) return 0;
+  const targets = [];
+  scene.traverse(o => { if (o.isSkinnedMesh && o.geometry && o.geometry.attributes && o.geometry.attributes.uv) targets.push(o); });
+  // Some FBX exports keep the body as a regular Mesh instead of SkinnedMesh.
+  if (!targets.length) scene.traverse(o => { if (o.isMesh && o.geometry && o.geometry.attributes && o.geometry.attributes.uv) targets.push(o); });
+  targets.forEach(o => {
+    const old = Array.isArray(o.material) ? o.material : [o.material];
+    const mapped = old.map(m => {
+      const mat = m && m.clone ? m.clone() : new THREE.MeshStandardMaterial();
+      mat.map = texture;
+      if (mat.color && mat.color.set) mat.color.set(0xffffff);
+      mat.needsUpdate = true;
+      return mat;
+    });
+    o.material = Array.isArray(o.material) ? mapped : mapped[0];
+  });
+  console.info("[WZ] Skin texture applied:", file, "meshes:", targets.length);
+  return targets.length;
+}
 function wzLoadChar(idx) {
   const def = WZ_CHARS[idx];
   if (!def) return Promise.resolve(null);
@@ -1299,14 +1393,20 @@ function wzLoadChar(idx) {
       }
       const url = urls[at++];
       modelLoader.load(url, loaded => {
-        try {
-          const tpl = wzBuildTpl(def, isFBX ? { scene: loaded } : loaded);
-          def.loadedFrom = url;
-          res(tpl);
-        } catch (e) {
-          console.error("[WZ] Model build fail:", url, e);
-          tryNext();
-        }
+        const buildTemplate = texture => {
+          try {
+            if (texture && def.texture) wzApplySkinTexture(loaded, texture, def.texture);
+            else if (def.texture) console.warn("[WZ] Groom texture missing; model will use FBX material:", def.texture);
+            const tpl = wzBuildTpl(def, isFBX ? { scene: loaded } : loaded);
+            def.loadedFrom = url;
+            res(tpl);
+          } catch (e) {
+            console.error("[WZ] Model build fail:", url, e);
+            tryNext();
+          }
+        };
+        if (def.texture) wzLoadTexture(def.texture).then(buildTemplate).catch(() => buildTemplate(null));
+        else buildTemplate(null);
       }, undefined, err => {
         console.warn("[WZ] Model path failed:", url, err && err.message ? err.message : err);
         tryNext();
@@ -1362,6 +1462,18 @@ function wzInstance(tpl) {
         if ((!fallbackIdle || fallbackIdle.tracks.length < 10) && tpl.compat) fallbackIdle = wzRetarget(wzAnim.clips.idle, tpl.names);
         if (fallbackIdle && fallbackIdle.tracks.length) tpl.clips.idle = fallbackIdle;
       }
+      // Groom3.fbx ke embedded clips ko sabhi selectable groom rigs par retarget karo.
+      // Matching state clip mile to woh existing generic clip ko replace karega.
+      Object.keys(wzAnim.groom3States || {}).forEach(state => {
+        const key = wzAnim.groom3States[state], sourceClip = wzAnim.clips[key];
+        if (!sourceClip) return;
+        let shared = null;
+        if (tpl.rolesOK) { try { shared = wzBake(tpl, key, "groom3"); } catch (e) { console.warn("[WZ] groom3 shared retarget failed", tpl.def.file, state, e); } }
+        if ((!shared || shared.tracks.length < 10) && tpl.compat) {
+          try { shared = wzRetarget(sourceClip, tpl.names); } catch (_) { shared = null; }
+        }
+        if (shared && shared.tracks.length) tpl.clips[state] = shared;
+      });
       tpl.clipsOK = !!(tpl.clips.idle && tpl.clips.idle.tracks.length > 10);
       if (!tpl.clipsOK) console.warn("[WZ] Bone match nahi hua, static fallback:", tpl.def.file);
     }
@@ -2988,7 +3100,7 @@ const WZ_SFX = {
   medkit:   { file: "medkit.mp3",    off: 0.65,  dur: 4.2,   vol: 0.60 },
   gloo:     { file: "gloowall.mp3",  off: 0.0,   dur: 1.3,   vol: 2.58 },
   headshot: { file: "headshot.mp3",  off: 0.0,   dur: 1.6,   vol: 0.29 },
-  walk:     { file: "walking..mp3",  loop: [0.085, 3.905],    vol: 0.43 },
+  walk:     { file: "walking.mp3",   loop: [0.085, 3.905],    vol: 0.43 },
   sprint:   { file: "sprinting.mp3", loop: [1.125, 5.555],    vol: 1.78 }
 };
 const wzSfxBuf = Object.create(null), wzSfxPend = Object.create(null), wzSfxFail = Object.create(null);
@@ -3091,7 +3203,7 @@ const resultAudioPlayers = Object.create(null);
 // whether it sits in /sounds or next to index.html (old loose.mp3 name still works).
 const RESULT_SOUND_SRCS = {
   victory: ["./sounds/victory.mp3", "./victory.mp3"],
-  defeat:  ["./sounds/defeat.mp3", "./defeat.mp3", "./sounds/loose.mp3", "./loose.mp3", "./sounds/lose.mp3"],
+  defeat:  ["./sounds/loose.mp3", "./loose.mp3", "./sounds/defeat.mp3", "./defeat.mp3", "./sounds/lose.mp3"],
   booyah:  ["./sounds/booyah.mp3", "./booyah.mp3"],
   // Multiplayer: plays whenever the opponent wins (round or whole match).
   defeat2: ["./sounds/defeat2.mp3", "./defeat2.mp3"]
@@ -3154,7 +3266,7 @@ function gameCue(kind) {
 }
 
 const W = [
-  { name: "AK-47", auto: true, dmg: 32, rate: 0.095, mag: 30, reserve: 120, reload: 1.0, spread: 0.010, moveSpread: 0.035, bloom: 0.0035, maxBloom: 0.03, kick: 0.011, vmKick: 0.55, pellets: 1, range: 150, hip: [0.2, -0.2, -0.42], ads: [0, -0.065, -0.30], snd: "ak" },
+  { name: "AK-47", auto: true, dmg: 32, rate: 0.095, mag: 30, reserve: 120, reload: 1.0, spread: 0.010, moveSpread: 0.035, bloom: 0.0035, maxBloom: 0.03, kick: 0.011, vmKick: 0.55, pellets: 1, range: 150, hip: [0.24, -0.25, -0.42], ads: [0, -0.065, -0.30], snd: "ak" },
   { name: "AWM", auto: false, dmg: 105, rate: 1.05, mag: 5, reserve: 30, reload: 1.0, spread: 0.001, moveSpread: 0.04, bloom: 0.002, maxBloom: 0.015, kick: 0.075, vmKick: 1.35, pellets: 1, range: 260, hip: [0.25, -0.28, -0.52], ads: [0.16, -0.22, -0.48], snd: "awm" },
   { name: "MP5-SMG", auto: true, dmg: 23, rate: 0.075, mag: 30, reserve: 150, reload: 0.9, spread: 0.014, moveSpread: 0.028, bloom: 0.003, maxBloom: 0.024, kick: 0.008, vmKick: 0.38, pellets: 1, range: 125, hip: [0.2, -0.19, -0.42], ads: [0, -0.07, -0.30], snd: "mp5" },
   { name: "PISTOL", auto: false, dmg: 27, rate: 0.17, mag: 15, reserve: 90, reload: 0.8, spread: 0.009, moveSpread: 0.03, bloom: 0.004, maxBloom: 0.02, kick: 0.013, vmKick: 0.5, pellets: 1, range: 95, hip: [0.2, -0.17, -0.38], ads: [0, -0.07, -0.28], snd: "pistol" }
@@ -3250,7 +3362,8 @@ function buildSMG() {
   return g;
 }
 const vm = new THREE.Group();
-vm.scale.setScalar(1); // Default weapon size for Survival and Deathmatch; Clash Squad scales separately
+vm.scale.setScalar(1.08); // Slightly larger screen-space viewmodel for mobile FPP
+vm.renderOrder = 1000;
 vm.position.set(0.02, -0.035, 0);
 vmCamera.add(vm);
 function buildPistol() {
@@ -3314,7 +3427,8 @@ function wzaSyncRemoteGun(s) {
   h.rotation.x = -(Number(u.netPitch) || 0) * 0.7;
 }
 const guns = [buildAK(), buildAWM(), buildSMG(), buildPistol()];
-guns.forEach(g => { g.visible = false; vm.add(g); });
+guns[0].scale.setScalar(1.22); // AK-47 ko FPP mein clearly visible rakho
+guns.forEach(g => { g.visible = false; g.renderOrder = 1000; vm.add(g); });
 const muzzleLight = new THREE.PointLight(0xffaa55, 0, 3);
 
 let playerGroundY = 0;
@@ -4246,6 +4360,7 @@ function setWeapon(i) {
   reloadT = 0; pendingIdx = i; switchT = SWITCH_TIME; swapped = false;
 }
 function showGun() {
+  vm.visible = true;
   guns.forEach((g, i) => { g.visible = i === curIdx; });
   guns[curIdx].userData.muzzle.add(muzzleLight);
   for (let i = 0; i < W.length; i++) $("slot" + i).classList.toggle("on", i === curIdx);
@@ -6855,7 +6970,12 @@ function frame() {
   if (!wzLobbyVideoCovering()) {
     renderer.clear();
     renderer.render(scene, camera);
-    if (showVM && !scopeActive) { renderer.clearDepth(); renderer.render(vmScene, vmCamera); }
+    if (showVM && !scopeActive) {
+      vm.visible = true;
+      guns.forEach((g, i) => { g.visible = i === curIdx; });
+      renderer.clearDepth();
+      renderer.render(vmScene, vmCamera);
+    }
   }
 }
 frame();
