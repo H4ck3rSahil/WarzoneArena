@@ -7132,13 +7132,19 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
 #wzaEmoteWheel .wza-center{font-size:calc(var(--ws)*.065)!important;pointer-events:none}
 #wzaEmoteWheel .wza-emote{position:absolute!important;right:auto!important;bottom:auto!important;width:calc(var(--ws)*.25)!important;height:calc(var(--ws)*.25)!important;min-width:44px;min-height:44px;margin:0!important;padding:0!important;transform:translate(-50%,-50%)!important;border-radius:50%!important;touch-action:manipulation}
 #wzaEmoteWheel .wza-emote span{font-size:calc(var(--ws)*.1)!important}
+#wzaEmoteWheel .wza-emote small{display:block!important;font:900 clamp(6px,1.8vw,8px)/1 Arial,sans-serif!important;letter-spacing:.25px;color:#eaf2ff;text-shadow:0 1px 3px #000;white-space:nowrap}
 #wzaEmoteWheel .wza-emote:active,#wzaEmoteWheel .wza-emote.selected{transform:translate(-50%,-50%) scale(1.07)!important}
-#wzaEmoteWheel [data-emote="1"]{left:50%!important;top:13%!important}
-#wzaEmoteWheel [data-emote="2"]{left:83%!important;top:31.5%!important}
-#wzaEmoteWheel [data-emote="3"]{left:83%!important;top:68.5%!important}
-#wzaEmoteWheel [data-emote="4"]{left:50%!important;top:87%!important}
-#wzaEmoteWheel [data-emote="5"]{left:17%!important;top:68.5%!important}
-#wzaEmoteWheel [data-emote="6"]{left:17%!important;top:31.5%!important}
+/* Ten evenly spaced emote slots; the original six keep their own animations. */
+#wzaEmoteWheel [data-emote="1"]{left:50%!important;top:11.5%!important}
+#wzaEmoteWheel [data-emote="2"]{left:73.5%!important;top:19.2%!important}
+#wzaEmoteWheel [data-emote="3"]{left:88%!important;top:40%!important}
+#wzaEmoteWheel [data-emote="4"]{left:88%!important;top:60%!important}
+#wzaEmoteWheel [data-emote="5"]{left:73.5%!important;top:80.8%!important}
+#wzaEmoteWheel [data-emote="6"]{left:50%!important;top:88.5%!important}
+#wzaEmoteWheel [data-emote="7"]{left:26.5%!important;top:80.8%!important}
+#wzaEmoteWheel [data-emote="8"]{left:12%!important;top:60%!important}
+#wzaEmoteWheel [data-emote="9"]{left:12%!important;top:40%!important}
+#wzaEmoteWheel [data-emote="10"]{left:26.5%!important;top:19.2%!important}
 </style>
 <div id="wzaEmoteWheel" aria-label="Emote wheel">
  <div class="wza-center">EMOTES</div>
@@ -7148,6 +7154,10 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
  <button class="wza-emote" data-emote="4" aria-label="Play emote 4"><span>🤝</span></button>
  <button class="wza-emote" data-emote="5" aria-label="Play emote 5"><span>💃</span></button>
  <button class="wza-emote" data-emote="6" aria-label="Play emote 6"><span>👋</span></button>
+ <button class="wza-emote" data-emote="7" aria-label="Laughing emote" title="Laughing"><span>😂</span><small>LAUGH</small></button>
+ <button class="wza-emote" data-emote="8" aria-label="Praying emote" title="Praying"><span>🙏</span><small>PRAY</small></button>
+ <button class="wza-emote" data-emote="9" aria-label="Rumba Dancing emote" title="Rumba Dancing"><span>💃</span><small>RUMBA</small></button>
+ <button class="wza-emote" data-emote="10" aria-label="TungTung emote" title="TungTung"><span>🪵</span><small>TUNGTUNG</small></button>
 </div><div id="wzaEmoteToast"></div>
 <script id="wzaExtraFeaturesScript">
 (function(){
@@ -7157,7 +7167,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
  try{const savedMode=localStorage.getItem('wzaGyroMode');if(['always','scope','off'].includes(savedMode))gyroMode=savedMode;}catch(_){}
  let proneOn=false, emoteBusy=false, localAnimAvatar=null, localAnimTpl=null, localAnimMixer=null, customClips={}, customActions={}, emoteTimer=0, selectedEmote=1;
  const wheel=$id('wzaEmoteWheel'),toast=$id('wzaEmoteToast');
- const animFiles={prone:'models/prone.fbx',shoot:'models/shoot.fbx',emote1:'models/emote1.fbx',emote2:'models/emote2.fbx',emote3:'models/emote3.fbx',emote4:'models/emote4.fbx',emote5:'models/emote5.fbx',emote6:'models/emote6.fbx'};
+ const animFiles={prone:'models/prone.fbx',shoot:'models/shoot.fbx',emote1:'models/emote1.fbx',emote2:'models/emote2.fbx',emote3:'models/emote3.fbx',emote4:'models/emote4.fbx',emote5:'models/emote5.fbx',emote6:'models/emote6.fbx',emote7:'./Laughing.fbx',emote8:'./Praying.fbx',emote9:'./Rumba%20Dancing.fbx',emote10:'./tungtung.fbx'};
  const loadedClips={};
  function toastMsg(msg){if(!toast)return;toast.textContent=msg;toast.style.display='block';clearTimeout(emoteTimer);emoteTimer=setTimeout(()=>toast.style.display='none',1500);}
  function activeAim(){return !!(typeof adsToggle!=='undefined'&&adsToggle);}
@@ -7363,7 +7373,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   if(proneOn)showAvatarForAction('prone');else if(localAnimAvatar)localAnimAvatar.group.visible=false;
  }
  function syncEmoteSelection(){if(!wheel)return;wheel.querySelectorAll('[data-emote]').forEach(b=>{const selected=Number(b.dataset.emote)===selectedEmote;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));});}
- function cycleEmote(delta){selectedEmote=((selectedEmote-1+delta+6)%6)+1;syncEmoteSelection();}
+ function cycleEmote(delta){selectedEmote=((selectedEmote-1+delta+10)%10)+1;syncEmoteSelection();}
  function toggleWheel(){if(!wheel)return;const opening=!wheel.classList.contains('open');wheel.classList.toggle('open',opening);if(opening)syncEmoteSelection();}
  function closeWheel(){if(wheel)wheel.classList.remove('open');}
  function loadCustomAnimations(){
@@ -7470,7 +7480,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   n=Math.floor(Number(n))||0;attempt=Number(attempt)||0;
   if(!root||!root.userData)return false;
   const w=root.userData.wz,now=performance.now();
-  if(n<1||n>6){
+  if(n<1||n>10){
    if(w){w.hold=0;if(w.mixer&&w.cur&&w.act[w.cur]){try{w.act[w.cur].fadeOut(0.08);}catch(_){}}}
    root.userData.wzaEmote=null;return true;
   }
@@ -7625,7 +7635,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   emoteBusy=true;
   ensureAvatar().then(ok=>{
    if(!emoteBusy)return;/* fire se cancel ho chuka */if(!ok||!localAnimAvatar){emoteBusy=false;toastMsg('EMOTE MODEL NOT READY');return;}
-   if(!loadedClips[key]){emoteBusy=false;toastMsg('EMOTE FILE MISSING: models/'+key+'.fbx');return;}
+   if(!loadedClips[key]){emoteBusy=false;toastMsg('EMOTE FILE MISSING: '+(animFiles[key]||('models/'+key+'.fbx')));return;}
    const a=localAction(key);
    if(!a||!localAnimAvatar.mixer){emoteBusy=false;toastMsg('EMOTE NOT SUPPORTED FOR THIS CHARACTER');return;}
    const w=localAnimAvatar;placeLocalAvatar();w.group.visible=true;if(tppOn){w.group.position.set(player.pos.x,player.pos.y,player.pos.z);}playOn(w,key,a);
