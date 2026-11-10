@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <link rel="manifest" href="./manifest.json">
 <link rel="preload" as="video" href="./intro.mp4" type="video/mp4">
+<link rel="preload" as="video" href="./lobby.mp4" type="video/mp4">
 <meta name="theme-color" content="#080b10">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -539,7 +540,7 @@ canvas,#c{border:0!important;outline:0!important}
   if(snd) snd.style.display='none';
   vid.muted=true; vid.playsInline=true;
   var p=vid.play();
-  if(p&&p.catch) p.catch(function(){ /* autoplay may be blocked; keep the intro screen available */ });
+  if(p&&p.catch) p.catch(function(){ closeIntro(); });
 })();
 </script>
   
@@ -690,7 +691,7 @@ document.addEventListener("click", function (e) {
 
 <div id="overlay">
   <!-- Lobby background video: keep WarzoneArena/lobby.mp4 beside this HTML in the WarzoneArena folder -->
-  <video id="lobbyVideo" src="./lobby.mp4" autoplay muted loop playsinline preload="none" aria-hidden="true"></video>
+  <video id="lobbyVideo" src="./lobby.mp4" autoplay muted loop playsinline preload="auto" aria-hidden="true"></video>
   <div id="menuScene"></div>
   <section id="menuLeft">
     <div id="ovSub">SURVIVE THE WAVES</div><div id="ovStats"></div>
@@ -698,6 +699,7 @@ document.addEventListener("click", function (e) {
     <div id="menuTagline" aria-live="polite">THE NIGHT IS DARK.<br>THE WARRIOR IS UNBROKEN.</div>
     <div id="menuFoot">TACTICAL SURVIVAL • SINGLE PLAYER</div>
   </section>
+  <a id="wzLobbyPromo" class="wzLobbyPromo" href="https://fightkaro.com/" role="button" aria-label="New game - Play"><img alt="" width="64" height="64" src="newgame.png" onerror="this.onerror=null;this.src=window.__wzPromoFallback"><span class="wzLpTxt"><b>NEW GAME</b><span class="wzLpPlay">PLAY</span></span></a>
   <section id="menuRight">
     <div id="menuTitle">WARZONE <span>ARENA</span></div>
     <div id="menuRule"></div>
@@ -734,28 +736,26 @@ document.addEventListener("click", function (e) {
 @media(max-width:700px){#lobbyQuote{max-width:94%;margin-top:14px}#lobbyQuoteText{font-size:clamp(10px,2.4vw,15px);letter-spacing:1px}.quoteMark{font-size:26px}}
 </style>
 <script>
-// Lobby video: one shared video element; load it after the intro to avoid competing downloads.
+// Lobby video runs with its own audio only while the main menu/lobby is visible.
 (function(){
   const v=document.getElementById('lobbyVideo');
   const overlay=document.getElementById('overlay');
   const music=document.getElementById('menuMusic');
   if(!v||!overlay)return;
-  v.loop=true; v.playsInline=true; v.muted=true; v.defaultMuted=true; v.volume=0.9;
-  let soundUnlocked=false, lobbyLoaded=false;
+  v.loop=true; v.playsInline=true; v.muted=true; v.volume=0.9;
+  let soundUnlocked=false;
   function inLobby(){return !overlay.classList.contains('hide');}
   function syncLobbyVideo(){
-    if(window.__wzWebOpen || document.hidden || !inLobby()){
+    if(window.__wzWebOpen){try{v.pause();if(music)music.pause();}catch(e){}return;}
+    if(document.hidden){try{v.pause();if(music)music.pause();}catch(e){}return;}
+    if(inLobby()){
+      if(music){try{music.pause();}catch(e){}}
+      if(v.paused){const p=v.play();if(p&&p.catch)p.catch(()=>{});}
+      if(soundUnlocked){v.muted=false;v.volume=0.9;}
+    }else{
       try{v.pause();}catch(e){}
-      return;
+      // The lobby video's audio must not continue into gameplay.
     }
-    if(music){try{music.pause();}catch(e){}}
-    if(!lobbyLoaded){
-      lobbyLoaded=true;
-      v.preload='auto';
-      try{v.load();}catch(e){}
-    }
-    if(soundUnlocked){v.muted=false;v.volume=0.9;}
-    if(v.paused){const p=v.play();if(p&&p.catch)p.catch(()=>{v.muted=true;});}
   }
   function unlockLobbySound(){
     if(!inLobby()||window.__wzWebOpen)return;
@@ -764,11 +764,9 @@ document.addEventListener("click", function (e) {
     if(music){try{music.pause();}catch(e){}}
   }
   ['pointerdown','touchstart','click','keydown'].forEach(ev=>document.addEventListener(ev,unlockLobbySound,{passive:true}));
-  document.addEventListener('visibilitychange',syncLobbyVideo);
-  document.addEventListener('wza:lobbychange',syncLobbyVideo);
-  // A low-frequency safety sync; playback is not restarted unless the video is paused.
-  setInterval(syncLobbyVideo,1000);
-  v.addEventListener('error',()=>console.warn('Lobby video could not load:',v.currentSrc));
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncLobbyVideo();else v.pause();});
+  setInterval(syncLobbyVideo,400);
+  v.addEventListener('error',()=>{if(!v.dataset.fallback){v.dataset.fallback='1';v.src='./WarzoneArena/lobby.mp4';v.load();syncLobbyVideo();}else console.warn('Lobby video could not load:',v.currentSrc);});
   syncLobbyVideo();
 })();
 </script>
@@ -902,7 +900,7 @@ const modelFiles = {
 const assetReady = Object.keys(modelFiles).map(key => loadGLB(key, modelFiles[key]));
 
 /* ================= WZ CHARACTER SYSTEM: Grooming + 3D models + animations =================
-   - Player models: groom1,3,5,6,7,8,9,10 use FBX; groom2,4 use GLB (index 0..9)
+   - Player models: models/groom1.glb ... groom10.glb   (index 0..9)
    - Enemy models : models/enemie1.glb ... enemie3.glb   (index 10..12)
    - All ten selectable Grooms use this shared animation pipeline: compatible humanoid rigs
      use the cached FBX clips with retargeting; models whose rigs cannot be mapped use the
@@ -913,14 +911,15 @@ const WZ_ANIM_DIR = "models/";
 const WZ_ANIM_FILES = { idle: "Idle.fbx", run: "Running.fbx", jump: "jumping.fbx", death: "death.fbx", crouch: "crouch.fbx", walk: "Walking.fbx" };
 const WZ_CHARS = [];
 const WZ_NAMES = ["KELLY", "TUNG TUNG SAHUR", "FREESTYLE", "KRATOS", "CARL JOHNSON", "SCORPION", "IRON MAN", "MADARA UCHIHA", "MINATO NAMIKAZE", "OBITO UCHIHA"];
-const WZ_FBX_GROOMS = new Set([1, 3, 5, 6, 7, 8, 9, 10]);
-for (let i = 1; i <= 10; i++) WZ_CHARS.push({ name: WZ_NAMES[i - 1], file: "models/groom" + i + (WZ_FBX_GROOMS.has(i) ? ".fbx" : ".glb"), rot: 0, scale: 1, p: null });
+for (let i = 1; i <= 10; i++) WZ_CHARS.push({ name: WZ_NAMES[i - 1], file: "models/groom" + i + ".fbx", rot: 0, scale: 1, p: null });
 // Selectable default player: use the same bot GLB already used by the game's enemy system.
 // It is a real GLB character (not a fake debug entry) and is also used by the gameplay avatar pipeline.
 WZ_CHARS.push({ name: "DEFAULT BOT", file: null, rot: 0, scale: 1, p: null, isDefaultBot: true, isBlueSoldier: true });
 const WZ_FIRST_ENEMY = 11; // indices 0..10 are selectable; enemy NPC models begin at 11
 for (let i = 1; i <= 3; i++) WZ_CHARS.push({ name: "ENEMY " + i, file: "models/enemie" + i + ".glb", rot: 0, scale: 1, p: null });
 WZ_CHARS[3].bright = 2.0; // groom4 (Kratos) brightness 200%
+try { const fl = JSON.parse(localStorage.getItem("wzaFlip") || "{}"); WZ_CHARS.forEach((c, i) => { if (fl[i]) c.rot = Math.PI; }); } catch (e) {}
+function wzSaveFlip() { try { const o = {}; WZ_CHARS.forEach((c, i) => { if (c.rot) o[i] = 1; }); localStorage.setItem("wzaFlip", JSON.stringify(o)); } catch (e) {} }
 let wzMyChar = 1; // default: groom2 (rigged). Menu se badal sakte ho.
 try { const v = parseInt(localStorage.getItem("wzaChar"), 10); if (v >= 0 && v < WZ_FIRST_ENEMY) wzMyChar = v; } catch (e) {}
 
@@ -1265,9 +1264,7 @@ function wzLoadChar(idx) {
       const url = urls[at++];
       modelLoader.load(url, loaded => {
         try {
-          // FBXLoader returns a THREE.Group directly; GLTFLoader returns a gltf object.
-          const modelData = isFBX ? { scene: loaded } : loaded;
-          const tpl = wzBuildTpl(def, modelData);
+          const tpl = wzBuildTpl(def, isFBX ? { scene: loaded } : loaded);
           def.loadedFrom = url;
           res(tpl);
         } catch (e) {
@@ -1446,8 +1443,10 @@ function wzOpenGrooming() {
   title.textContent = "GROOMING";
   content.innerHTML = '<div id="wzGrWrap" style="text-align:center">' +
     '<canvas id="wzGrCv" style="width:100%;max-width:210px;height:min(27vh,210px);display:block;margin:2px auto 0;border:1px solid rgba(255,255,255,.1);background:radial-gradient(circle at 50% 35%,#2a3340,#0c1016)"></canvas>' +
+    '<div id="wzGrStatus" style="min-height:14px;margin:3px auto 0;max-width:95%;font:10px/1.25 Arial,sans-serif;color:#ffcf50;opacity:.9"></div>' +
+    '<div id="wzGrName" style="margin:6px 0;padding-bottom:5px;font:600 clamp(11px,1.1vw,14px) Georgia,\'Times New Roman\',serif;letter-spacing:2px;color:#ffcf50;border-bottom:1px solid rgba(255,255,255,.07)"></div>' +
     '<div style="display:flex;gap:6px;justify-content:center"><button class="wzGrB" id="wzGrPrev" type="button">&#9664;</button><button class="wzGrB" id="wzGrSel" type="button">SELECT</button><button class="wzGrB" id="wzGrNext" type="button">&#9654;</button></div>' +
-    '<div style="margin-top:6px"><button class="wzGrB" id="wzGrBack" type="button">BACK</button></div></div>';
+    '<div style="margin-top:6px"><button class="wzGrB" id="wzGrFlip" type="button">&#8635; FLIP</button> <button class="wzGrB" id="wzGrBack" type="button">BACK</button></div></div>';
   menuSubPanel.classList.add("on");
   try { wzPlaceSidePanel(); } catch (e) {}
   const cv = $("wzGrCv");
@@ -1461,9 +1460,12 @@ function wzOpenGrooming() {
   const pivot = new THREE.Group(); sc.add(pivot);
   const stop = () => { alive = false; try { if (rend) { rend.dispose(); if (rend.forceContextLoss) rend.forceContextLoss(); } } catch (e) {} };
   wzGrStopFn = stop;
+  const label = () => { $("wzGrName").textContent = WZ_CHARS[idx].name; };
+  const status = $("wzGrStatus");
   const show = i => {
     idx = (i + WZ_FIRST_ENEMY) % WZ_FIRST_ENEMY;
     const my = ++token;
+    label();
     
     if (cur) { pivot.remove(cur.group); if (cur.mixer) cur.mixer.stopAllAction(); cur = null; }
     if (previewBot) { pivot.remove(previewBot.root); previewBot = null; }
@@ -1471,22 +1473,27 @@ function wzOpenGrooming() {
       previewBot = buildSoldier(1, false, true);
       wzApplyBlueSoldier(previewBot);
       pivot.add(previewBot.root);
+      if (status) status.textContent = "PVP BLUE TEAM SOLDIER";
       return;
     }
+    if (status) status.textContent = "LOADING...";
     Promise.all([wzLoadChar(idx), wzAnim.ready]).then(r => {
       if (!alive || my !== token) return;
       if (!r[0]) {
+        if (status) status.textContent = "MODEL FILE MISSING — APK mein models folder add karein";
         return;
       }
       cur = wzInstance(r[0]); pivot.add(cur.group);
+      if (status) { const t = r[0]; status.textContent = "DEBUG: skinned=" + t.skinned + " rolesOK=" + t.rolesOK + " compat=" + t.compat + " anim=" + (cur.mixer ? "yes" : "NO") + " face=" + Math.round((t.faceFix || 0) * 180 / Math.PI) + "deg scale=" + t.s.toFixed(3) + " bones=" + Object.keys(t.names).length; }
       
-    }).catch(e => { console.error("[WZ] preview error", e); });
+    }).catch(e => { console.error("[WZ] preview error", e); if (status && my === token) status.textContent = "PREVIEW ERROR: " + (e && e.message ? e.message : e); });
   };
   $("wzGrPrev").onclick = e => { e.preventDefault(); e.stopPropagation(); show(idx - 1); };
   $("wzGrNext").onclick = e => { e.preventDefault(); e.stopPropagation(); show(idx + 1); };
   $("wzGrSel").onclick = e => {
     e.preventDefault(); e.stopPropagation();
     wzMyChar = idx; try { localStorage.setItem("wzaChar", String(idx)); } catch (_) {}
+    label();
     wzToast(WZ_CHARS[idx].name + " SELECTED");
     const selectedName=WZ_CHARS[idx].name;
     Promise.resolve().then(()=>typeof window.wzaRefreshAvatar==='function'?window.wzaRefreshAvatar():false).then(ok=>{
@@ -1494,6 +1501,12 @@ function wzOpenGrooming() {
       if(!ok)wzToast(selectedName+" SAVED — MODEL WILL LOAD WHEN READY",2200);
       stop();closeMenuPanel();
     }).catch(err=>{console.warn('[WZ] selected avatar refresh failed',err);if(alive){stop();closeMenuPanel();}});
+  };
+  $("wzGrFlip").onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const d = WZ_CHARS[idx]; d.rot = d.rot ? 0 : Math.PI; wzSaveFlip();
+    if (cur) cur.group.rotation.y = d.rot;
+    if (status) status.textContent = d.rot ? "FLIPPED (muh ulta kiya)" : "FLIP OFF";
   };
   $("wzGrBack").onclick = e => { e.preventDefault(); e.stopPropagation(); stop(); closeMenuPanel(); };
   const loop = () => {
@@ -1792,18 +1805,26 @@ function wzMenuCam(a) {
 
 /* ===== LOBBY VIDEO: menu/lobby ke peeche lobby.mp4 (WarzoneArena folder) loop mein chale =====
    Video na mile / chale nahi to training map ka ghumna fallback ki tarah chalta rahega. Video muted hai (menu music alag bajta hai). */
-const wzLobbyVid = { el: document.getElementById("lobbyVideo"), bad: false };
+const WZ_LOBBY_VIDEO = "lobby.mp4";
+const wzLobbyVid = { el: null, bad: false };
 function wzLobbyVideoTick() {
-  const v = wzLobbyVid.el;
-  if (!v) return;
-  if (document.getElementById("introSplash")) { if (!v.paused) v.pause(); return; }
-  const want = state === "menu" && !wzLobbyVid.bad && !document.hidden;
-  if (want && v.paused) { v.preload = "auto"; const p = v.play(); if (p && p.catch) p.catch(() => {}); }
-  else if (!want && !v.paused) { try { v.pause(); } catch (e) {} }
+  const lv = wzLobbyVid, want = state === "menu" && !lv.bad;
+  if (want && !lv.el) {
+    const v = document.createElement("video");
+    v.src = WZ_LOBBY_VIDEO; v.muted = true; v.defaultMuted = true; v.loop = true; v.autoplay = true; v.playsInline = true; v.preload = "auto";
+    v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.setAttribute("webkit-playsinline", "");
+    v.style.cssText = "position:fixed;left:0;top:0;width:100%;height:100%;object-fit:cover;z-index:10;pointer-events:none;background:#000;display:block";
+    v.addEventListener("error", () => { lv.bad = true; console.warn("[WZ] lobby.mp4 load nahi hua - training map fallback chalega (WarzoneArena folder mein rakho)"); try { v.remove(); } catch (e) {} lv.el = null; });
+    document.body.appendChild(v);
+    lv.el = v;
+  }
+  const v = lv.el; if (!v) return;
+  if (want) { if (v.style.display === "none") v.style.display = "block"; if (v.paused) { const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } }
+  else if (v.style.display !== "none") { v.style.display = "none"; try { v.pause(); } catch (e) {} }
 }
-function wzLobbyVideoCovering() {
+function wzLobbyVideoCovering() {          // video chal raha ho to peeche ka 3D render band (battery bachti hai)
   const v = wzLobbyVid.el;
-  return state === "menu" && !!v && v.readyState >= 2 && !v.paused;
+  return state === "menu" && !!v && v.style.display !== "none" && v.readyState >= 2 && !v.paused;
 }
 
 /* ===== GLOO WALL MODEL: models/gloowall.glb (na mile to purana box dikhta rahe) ===== */
@@ -6814,14 +6835,18 @@ frame();
 
 <style>
 /* ===== Lobby "NEW GAME" card + in-app website viewer ===== */
+.wzLobbyPromo{position:absolute;left:3vw;top:5vh;z-index:6;display:flex;align-items:center;gap:12px;padding:8px 16px 8px 8px;border-radius:14px;
   background:linear-gradient(135deg,rgba(16,9,9,.82),rgba(44,10,13,.74));border:1px solid rgba(231,184,45,.6);
   box-shadow:0 8px 26px rgba(0,0,0,.6),inset 0 0 0 1px rgba(190,55,48,.35),0 0 24px rgba(190,55,48,.28);
   -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);cursor:pointer;text-decoration:none;color:#fff;-webkit-tap-highlight-color:transparent;transition:transform .15s ease}
+.wzLobbyPromo:active{transform:scale(.96)}
+.wzLobbyPromo img{width:64px;height:64px;border-radius:10px;object-fit:cover;flex:none;border:1px solid rgba(255,255,255,.3);box-shadow:0 2px 10px rgba(0,0,0,.6)}
 .wzLpTxt{display:flex;flex-direction:column;gap:9px;min-width:0}
 .wzLpTxt b{font:800 15px/1 Georgia,'Times New Roman',serif;letter-spacing:3px;color:#fff;text-shadow:0 2px 6px #000}
 .wzLpPlay{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;padding:8px 20px 8px 14px;border-radius:999px;background:linear-gradient(180deg,#ffe07a,#e3a817 60%,#c58a08);color:#1b1300;font:900 12px/1 Arial,sans-serif;letter-spacing:2.5px;box-shadow:0 2px 0 #7a5200,0 4px 14px rgba(231,184,45,.4);animation:wzLpPulse 2.2s ease-in-out infinite}
 .wzLpPlay:before{content:"";width:0;height:0;border-left:10px solid #1b1300;border-top:6px solid transparent;border-bottom:6px solid transparent}
 @keyframes wzLpPulse{0%,100%{box-shadow:0 2px 0 #7a5200,0 4px 14px rgba(231,184,45,.35)}50%{box-shadow:0 2px 0 #7a5200,0 4px 22px rgba(255,214,90,.8)}}
+@media(max-width:760px),(max-height:520px){.wzLobbyPromo{left:2.5vw;top:3vh;padding:6px 12px 6px 6px;gap:9px;border-radius:11px}.wzLobbyPromo img{width:46px;height:46px}.wzLpTxt{gap:6px}.wzLpTxt b{font-size:12px;letter-spacing:2px}.wzLpPlay{padding:6px 15px 6px 10px;font-size:10px}}
 #wzWebView{position:fixed;inset:0;z-index:2147483000;display:none;flex-direction:column;background:#0b0b0d}
 #wzWebView.on{display:flex}
 #wzWebView .wzWvBar{flex:none;display:flex;align-items:center;gap:10px;padding:max(8px,env(safe-area-inset-top)) 12px 8px;background:linear-gradient(180deg,#1b1012,#100a0b);border-bottom:1px solid rgba(231,184,45,.5)}
@@ -6866,6 +6891,10 @@ function wzOpenWeb(url) {
   w.querySelector("iframe").src = url;
   w.classList.add("on");
 }
+(function () {
+  const c = document.getElementById("wzLobbyPromo");
+  if (c) c.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); wzOpenWeb("https://fightkaro.com/"); });
+})();
 </script>
 </body>
 </html>
