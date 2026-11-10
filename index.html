@@ -181,6 +181,8 @@ body.touch-ui.game-playing #touchControls{display:block}
 #fireBtn{right:0;bottom:0}
 #reloadBtn{right:118px;bottom:24px}
 #scopeBtn{right:112px;bottom:104px}
+#wzaAimLockBtn{right:178px;bottom:104px;width:56px;height:56px;font-size:9px;line-height:1.05;border-color:rgba(116,213,255,.85);background:rgba(10,38,55,.72)}
+#wzaAimLockBtn.active{background:rgba(25,117,153,.9);border-color:#9ce8ff;box-shadow:0 0 12px rgba(74,190,255,.45)}
 #jumpBtn{right:22px;bottom:122px}
 #crouchBtn{right:22px;bottom:192px}
 #glooBtn{right:106px;bottom:180px}
@@ -689,13 +691,14 @@ document.addEventListener("click", function (e) {
       <button id="fireBtn" aria-label="Fire button" type="button" class="tcb tcFire tcBig">FIRE</button>
       <button id="reloadBtn" aria-label="Reload button" type="button" class="tcb tcSm">RELOAD</button>
       <button id="scopeBtn" aria-label="Scope button" type="button" class="tcb">SCOPE</button>
+      <button id="wzaAimLockBtn" aria-label="Aim lock toggle" type="button" class="tcb tcSm">AIM<br>LOCK</button>
       <button id="jumpBtn" aria-label="Jump button" type="button" class="tcb">JUMP</button>
       <button id="crouchBtn" aria-label="Crouch button" type="button" class="tcb tcSm">CROUCH</button>
       <button id="glooBtn" aria-label="Gloo wall button" type="button" class="tcb tcSm control-btn">GLOO<br><span id="glooCount">3</span></button>
       <button id="medBtn" type="button" class="tcb tcSm control-btn" aria-label="Use medkit">MEDKIT<br><span id="medCount">0</span></button>
     </div>
   </div>
-  <div id="mobileHint">TOUCH: LEFT STICK MOVE · DRAG TO AIM<br>WASD MOVE · SPACE JUMP · C CROUCH</div>
+  <div id="mobileHint">TOUCH: LEFT STICK MOVE · DRAG TO AIM · AIM LOCK<br>WASD MOVE · SPACE JUMP · C CROUCH</div>
 </div>
 
 <div id="overlay">
@@ -743,6 +746,11 @@ document.addEventListener("click", function (e) {
 #lobbyQuote.changing{animation:quoteOut .25s ease forwards}
 @keyframes quoteOut{to{opacity:0;transform:translateY(5px)}}
 @media(max-width:700px){#lobbyQuote{max-width:94%;margin-top:14px}#lobbyQuoteText{font-size:clamp(10px,2.4vw,15px);letter-spacing:1px}.quoteMark{font-size:26px}}
+</style>
+<style>
+/* Keep the lobby clean while Grooming / Options / Game Mode panels are open. */
+#overlay:has(#menuSubPanel.on) #menuLeft,
+#overlay:has(#menuSubPanel.on) #wzLobbyPromo{display:none!important}
 </style>
 <script>
 // Lobby video runs with its own audio only while the main menu/lobby is visible.
@@ -910,18 +918,32 @@ const modelFiles = {
 const assetReady = Object.keys(modelFiles).map(key => loadGLB(key, modelFiles[key]));
 
 /* ================= WZ CHARACTER SYSTEM: Grooming + 3D models + animations =================
-   - Player models: models/groom1.fbx ... groom10.fbx   (index 0..9)
-   - Enemy models : models/enemie1.glb ... enemie3.glb   (index 10..12)
+   - Player models: models/groom1.fbx ... groom9.fbx, and models/groom10.glb (index 0..9)
+   - Enemy models : models/enemie1.glb ... enemie3.glb
    - All ten selectable Grooms use this shared animation pipeline: compatible humanoid rigs
      use the cached FBX clips with retargeting; models whose rigs cannot be mapped use the
      built-in procedural bob/sway fallback. Selection and preview both call wzInstance/wzStep.
+   - Groom10 uses its GLB's own embedded materials/textures; no separate FBX skin PNG is applied.
    - Kisi model ka face ulta ho to neeche WZ_CHARS mein us model ki rot: Math.PI kar do. */
 const WZ_HEIGHT = 1.85;
 const WZ_ANIM_DIR = "models/";
 const WZ_ANIM_FILES = { idle: "Idle.fbx", groom3idle: "groom3idle.fbx", run: "Running.fbx", jump: "jumping.fbx", death: "death.fbx", prone: "prone.fbx", crouch: "crouch.fbx", walk: "Walking.fbx" };
 const WZ_CHARS = [];
 const WZ_NAMES = ["KELLY", "TUNG TUNG SAHUR", "FREESTYLE", "KRATOS", "CARL JOHNSON", "SCORPION", "IRON MAN", "MADARA UCHIHA", "MINATO NAMIKAZE", "OBITO UCHIHA"];
-for (let i = 1; i <= 10; i++) WZ_CHARS.push({ name: WZ_NAMES[i - 1], file: "models/groom" + i + ".fbx", texture: i === 10 ? "textures/1.png" : null, rot: 0, scale: 1, p: null });
+for (let i = 1; i <= 10; i++) {
+  const isGroom10GLB = i === 10;
+  const file = isGroom10GLB ? "models/groom10.glb" : "models/groom" + i + ".fbx";
+  WZ_CHARS.push({
+    name: WZ_NAMES[i - 1],
+    file,
+    files: isGroom10GLB ? [
+      "models/groom10.glb", "models/Groom10.glb", "models/groom10.GLB",
+      "Models/groom10.glb", "Models/Groom10.glb", "Models/groom10.GLB",
+      "groom10.glb", "Groom10.glb", "groom10.GLB"
+    ] : [file],
+    rot: 0, scale: 1, p: null
+  });
+}
 // Selectable default player: use the same bot GLB already used by the game's enemy system.
 // It is a real GLB character (not a fake debug entry) and is also used by the gameplay avatar pipeline.
 WZ_CHARS.push({ name: "DEFAULT BOT", file: null, rot: 0, scale: 1, p: null, isDefaultBot: true, isBlueSoldier: true });
@@ -936,11 +958,11 @@ try { const v = parseInt(localStorage.getItem("wzaChar"), 10); if (v >= 0 && v <
 function wzNorm(n) { return String(n).replace(/^mixamorig:?/i, "").replace(/_\d+$/, ""); }
 
 // ---- Animations (FBX) ek baar load, cache ----
-const wzAnim = { clips: {}, objs: {}, ready: null, groom3States: {} };
+const wzAnim = { clips: {}, objs: {}, ready: null };
 wzAnim.ready = (function () {
   if (typeof THREE.FBXLoader !== "function") { console.error("[WZ] FBXLoader load nahi hua - animations band rahengi (static fallback chalega)."); return Promise.resolve(); }
   const loader = new THREE.FBXLoader();
-  const jobs = Object.keys(WZ_ANIM_FILES).map(k => new Promise(res => {
+  return Promise.all(Object.keys(WZ_ANIM_FILES).map(k => new Promise(res => {
     const base = WZ_ANIM_FILES[k], names = [base];
     [base.toLowerCase(), base.charAt(0).toUpperCase() + base.slice(1).toLowerCase()].forEach(n => { if (names.indexOf(n) < 0) names.push(n); });
     const urls = []; names.forEach(n => wzAssetCandidates(WZ_ANIM_DIR + n).forEach(u => { if (urls.indexOf(u) < 0) urls.push(u); }));
@@ -960,56 +982,7 @@ wzAnim.ready = (function () {
       }, undefined, () => next());
     };
     next();
-  }));
-
-  // Groom3.fbx ke andar embedded animation clips hon to unhe shared source skeleton banao.
-  // Clip names se idle/run/walk/jump/death/prone/crouch states identify hote hain.
-  const groom3Job = new Promise(res => {
-    const urls = wzAssetCandidates("models/groom3.fbx");
-    let at = 0;
-    const next = () => {
-      if (at >= urls.length) { console.warn("[WZ] groom3.fbx animation source nahi mila; standard animation files fallback rahenge."); res(); return; }
-      const url = urls[at++];
-      loader.load(url, obj => {
-        const clips = obj && Array.isArray(obj.animations) ? obj.animations.filter(c => c && c.tracks && c.tracks.length) : [];
-        if (!clips.length) { console.warn("[WZ] groom3.fbx mein embedded animation clip nahi mila; standard clips fallback rahenge."); res(); return; }
-        try {
-          const cloneFn = (THREE.SkeletonUtils && THREE.SkeletonUtils.clone) ? THREE.SkeletonUtils.clone : (o => o.clone(true));
-          wzAnim.objs.groom3 = cloneFn(obj);
-        } catch (_) { wzAnim.objs.groom3 = obj; }
-        const rules = [
-          ["idle", /idle|stand|rest|breath/i],
-          ["run", /run|running|sprint/i],
-          ["walk", /walk|walking/i],
-          ["jump", /jump|leap/i],
-          ["death", /death|die|fall/i],
-          ["prone", /prone|crawl|lie/i],
-          ["crouch", /crouch|squat/i]
-        ];
-        clips.forEach(clip => {
-          const label = String(clip.name || "");
-          rules.forEach(([state, pattern]) => {
-            if (pattern.test(label) && !wzAnim.groom3States[state]) {
-              const key = "groom3_" + state;
-              wzAnim.clips[key] = clip;
-              wzAnim.groom3States[state] = key;
-            }
-          });
-        });
-        // Single/unnamed embedded clip ko safe idle default banao; baaki movement states
-        // existing FBX clips se chalenge, taaki idle animation ko jump/death mein na chalayein.
-        if (!Object.keys(wzAnim.groom3States).length) {
-          const clip = clips.slice().sort((a, b) => b.tracks.length - a.tracks.length)[0];
-          wzAnim.clips.groom3_idle = clip;
-          wzAnim.groom3States.idle = "groom3_idle";
-        }
-        console.info("[WZ] groom3.fbx embedded clips shared:", Object.keys(wzAnim.groom3States));
-        res();
-      }, undefined, next);
-    };
-    next();
-  });
-  return Promise.all(jobs.concat(groom3Job));
+  })));
 })();
 
 // FBX clip -> model ke bone naam par retarget (sirf rotation, in-place; position tracks hata di)
@@ -1331,49 +1304,6 @@ function wzAssetCandidates(path) {
   return out;
 }
 
-const wzTextureCache = Object.create(null);
-function wzLoadTexture(path) {
-  if (!path) return Promise.resolve(null);
-  if (wzTextureCache[path]) return wzTextureCache[path];
-  wzTextureCache[path] = new Promise(resolve => {
-    if (typeof THREE.TextureLoader !== "function") { resolve(null); return; }
-    const textureLoader = new THREE.TextureLoader();
-    const urls = wzAssetCandidates(path); let at = 0;
-    const next = () => {
-      if (at >= urls.length) { console.warn("[WZ] Texture load fail:", path, urls); resolve(null); return; }
-      textureLoader.load(urls[at++], tex => {
-        tex.flipY = false; // FBX UVs use the same orientation as FBXLoader textures.
-        if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
-        else if (THREE.sRGBEncoding !== undefined) tex.encoding = THREE.sRGBEncoding;
-        tex.anisotropy = Math.min(8, (renderer && renderer.capabilities && renderer.capabilities.getMaxAnisotropy) ? renderer.capabilities.getMaxAnisotropy() : 1);
-        tex.needsUpdate = true;
-        resolve(tex);
-      }, undefined, next);
-    };
-    next();
-  });
-  return wzTextureCache[path];
-}
-function wzApplySkinTexture(scene, texture, file) {
-  if (!scene || !texture) return 0;
-  const targets = [];
-  scene.traverse(o => { if (o.isSkinnedMesh && o.geometry && o.geometry.attributes && o.geometry.attributes.uv) targets.push(o); });
-  // Some FBX exports keep the body as a regular Mesh instead of SkinnedMesh.
-  if (!targets.length) scene.traverse(o => { if (o.isMesh && o.geometry && o.geometry.attributes && o.geometry.attributes.uv) targets.push(o); });
-  targets.forEach(o => {
-    const old = Array.isArray(o.material) ? o.material : [o.material];
-    const mapped = old.map(m => {
-      const mat = m && m.clone ? m.clone() : new THREE.MeshStandardMaterial();
-      mat.map = texture;
-      if (mat.color && mat.color.set) mat.color.set(0xffffff);
-      mat.needsUpdate = true;
-      return mat;
-    });
-    o.material = Array.isArray(o.material) ? mapped : mapped[0];
-  });
-  console.info("[WZ] Skin texture applied:", file, "meshes:", targets.length);
-  return targets.length;
-}
 function wzLoadChar(idx) {
   const def = WZ_CHARS[idx];
   if (!def) return Promise.resolve(null);
@@ -1383,30 +1313,46 @@ function wzLoadChar(idx) {
     if (isFBX && typeof THREE.FBXLoader !== "function") { console.error("[WZ] FBXLoader available nahi hai:", def.file); res(null); return; }
     if (!isFBX && !assetLoader) { console.error("[WZ] GLTFLoader available nahi hai:", def.file); res(null); return; }
     const modelLoader = isFBX ? new THREE.FBXLoader() : assetLoader;
-    const urls = wzAssetCandidates(def.file);
+    const modelPaths = Array.isArray(def.files) && def.files.length ? def.files : [def.file];
+    const urls = [];
+    modelPaths.forEach(path => wzAssetCandidates(path).forEach(u => { if (!urls.includes(u)) urls.push(u); }));
     let at = 0;
     const tryNext = () => {
       if (at >= urls.length) {
-        console.warn("[WZ] Model missing in all APK/Web paths:", def.file, urls);
+        console.warn("[WZ] Model missing in all Web/APK paths:", def.file, urls);
         res(null);
         return;
       }
       const url = urls[at++];
       modelLoader.load(url, loaded => {
-        const buildTemplate = texture => {
-          try {
-            if (texture && def.texture) wzApplySkinTexture(loaded, texture, def.texture);
-            else if (def.texture) console.warn("[WZ] Groom texture missing; model will use FBX material:", def.texture);
-            const tpl = wzBuildTpl(def, isFBX ? { scene: loaded } : loaded);
-            def.loadedFrom = url;
-            res(tpl);
-          } catch (e) {
-            console.error("[WZ] Model build fail:", url, e);
+        try {
+          // FBXLoader returns an Object3D, while GLTFLoader returns a GLTF wrapper.
+          // Always traverse the actual scene root so GLB character meshes are detected.
+          const loadedRoot = isFBX ? loaded : (loaded && (loaded.scene || (loaded.scenes && loaded.scenes[0])));
+          if (!loadedRoot) throw new Error("model scene missing");
+          let meshCount = 0;
+          loadedRoot.traverse(o => {
+            if (!o.isMesh || !o.geometry) return;
+            meshCount++;
+            o.visible = true;
+            o.frustumCulled = false;
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            mats.forEach(m => { if (m) m.visible = true; });
+          });
+          if (!meshCount) {
+            console.warn("[WZ] Model has no visible mesh; trying next path:", url);
             tryNext();
+            return;
           }
-        };
-        if (def.texture) wzLoadTexture(def.texture).then(buildTemplate).catch(() => buildTemplate(null));
-        else buildTemplate(null);
+          // GLB materials and embedded textures are kept exactly as authored in the file.
+          const tpl = wzBuildTpl(def, isFBX ? { scene: loadedRoot } : loaded);
+          def.loadedFrom = url;
+          console.info("[WZ] Character model loaded:", def.file, "from:", url, "meshes:", meshCount);
+          res(tpl);
+        } catch (e) {
+          console.error("[WZ] Model build fail:", url, e);
+          tryNext();
+        }
       }, undefined, err => {
         console.warn("[WZ] Model path failed:", url, err && err.message ? err.message : err);
         tryNext();
@@ -1416,7 +1362,6 @@ function wzLoadChar(idx) {
   });
   return def.p;
 }
-
 // ---- Har character instance alag (SkeletonUtils.clone) + alag AnimationMixer ----
 function wzInstance(tpl) {
   const cloneFn = (THREE.SkeletonUtils && THREE.SkeletonUtils.clone) ? THREE.SkeletonUtils.clone : (o => o.clone(true));
@@ -1462,18 +1407,6 @@ function wzInstance(tpl) {
         if ((!fallbackIdle || fallbackIdle.tracks.length < 10) && tpl.compat) fallbackIdle = wzRetarget(wzAnim.clips.idle, tpl.names);
         if (fallbackIdle && fallbackIdle.tracks.length) tpl.clips.idle = fallbackIdle;
       }
-      // Groom3.fbx ke embedded clips ko sabhi selectable groom rigs par retarget karo.
-      // Matching state clip mile to woh existing generic clip ko replace karega.
-      Object.keys(wzAnim.groom3States || {}).forEach(state => {
-        const key = wzAnim.groom3States[state], sourceClip = wzAnim.clips[key];
-        if (!sourceClip) return;
-        let shared = null;
-        if (tpl.rolesOK) { try { shared = wzBake(tpl, key, "groom3"); } catch (e) { console.warn("[WZ] groom3 shared retarget failed", tpl.def.file, state, e); } }
-        if ((!shared || shared.tracks.length < 10) && tpl.compat) {
-          try { shared = wzRetarget(sourceClip, tpl.names); } catch (_) { shared = null; }
-        }
-        if (shared && shared.tracks.length) tpl.clips[state] = shared;
-      });
       tpl.clipsOK = !!(tpl.clips.idle && tpl.clips.idle.tracks.length > 10);
       if (!tpl.clipsOK) console.warn("[WZ] Bone match nahi hua, static fallback:", tpl.def.file);
     }
@@ -3362,7 +3295,7 @@ function buildSMG() {
   return g;
 }
 const vm = new THREE.Group();
-vm.scale.setScalar(1.08); // Slightly larger screen-space viewmodel for mobile FPP
+vm.scale.setScalar(0.78); // Compact FPP weapon so it does not cover the centre of the screen
 vm.renderOrder = 1000;
 vm.position.set(0.02, -0.035, 0);
 vmCamera.add(vm);
@@ -5489,7 +5422,7 @@ function updatePlayer(dt) {
   sprintBlend += ((sprint && hs > (isTraining() ? 1.15 : 3) ? 1 : 0) - sprintBlend) * Math.min(1, dt * 8);
 
   const normalFov = NORMAL_FOV;
-  const aimFov = curIdx === 1 ? 17.1 : 24;
+  const aimFov = (curIdx === 0 || curIdx === 1) ? 17.1 : 24; // AK-47 gets the same AWM-style zoom when scoped.
   const fov = lerp(normalFov, aimFov, adsT) + 7 * sprintBlend;   // sprint: thoda wide FOV = speed feel
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
   eyeCur += (eyeTarget() - eyeCur) * Math.min(1, dt * 12);
@@ -5724,7 +5657,7 @@ function showOverlay(sub, btn, statsHTML) {
 function resetGame(mode) {
   if (mode) gameMode = mode;
   try { if (window.wzaEnsureGyro) window.wzaEnsureGyro(); } catch (e) {}
-  vm.scale.setScalar(gameMode === "clash" ? 1 : 1);
+  vm.scale.setScalar(0.78); // Keep the compact weapon size after every match reset
   applyModeMap(gameMode);
   // The score HUD is exclusive to Deathmatch; keep Survival clean.
   $("waveBox").style.display = (gameMode === "tdm" || gameMode === "pvp") ? "flex" : "none";
@@ -6054,7 +5987,7 @@ function wzSetSide(on) {
   if (on) wzPlaceSidePanel(); else ["left", "right", "width"].forEach(k => p.style.removeProperty(k));
 }
 window.addEventListener("resize", () => { try { wzPlaceSidePanel(); } catch (e) {} });
-const TOUCH_CUSTOM_IDS = ["joyZone","fireBtn","fireBtnL","sprintBtn","reloadBtn","scopeBtn","jumpBtn","crouchBtn","glooBtn","medBtn","pauseBtn"];
+const TOUCH_CUSTOM_IDS = ["joyZone","fireBtn","fireBtnL","sprintBtn","reloadBtn","scopeBtn","wzaAimLockBtn","jumpBtn","crouchBtn","glooBtn","medBtn","pauseBtn"];
 const TOUCH_CUSTOM_KEY = "warzoneArenaTouchControlLayoutV1";
 function readTouchCustomLayout() {
   try { return JSON.parse(localStorage.getItem(TOUCH_CUSTOM_KEY) || "{}") || {}; }
@@ -6957,7 +6890,8 @@ function frame() {
   const showVM = (state === "playing" || state === "paused" || state === "dead") && !killCam && !emoteCamOn;
   if (!_sprintFxEl) _sprintFxEl = document.getElementById("sprintFx");
   if (_sprintFxEl) { const o = (state === "playing" && !killCam && !emoteCamOn) ? (sprintBlend * (isTraining() ? 1 : 0.85)).toFixed(2) : "0"; if (o !== _sprintFxLast) { _sprintFxLast = o; _sprintFxEl.style.opacity = o; } }
-  const awmScoped = state === "playing" && curIdx === 1 && adsToggle;
+  // AK-47 and AWM both use the same AWM-style circular scope overlay.
+  const awmScoped = state === "playing" && (curIdx === 0 || curIdx === 1) && adsToggle;
   const rifleScoped = false;
   const scopeEl = document.getElementById("awmScope");
   const rifleScopeEl = document.getElementById("rifleScope");
@@ -6966,6 +6900,7 @@ function frame() {
   const scopeActive = awmScoped || rifleScoped;
   const chEl = document.getElementById("crosshair");
   if (chEl) chEl.classList.toggle("awmHidden", scopeActive);
+  if (guns[0]) guns[0].visible = curIdx === 0 && !awmScoped;
   if (guns[1]) guns[1].visible = curIdx === 1 && !awmScoped;
   if (!wzLobbyVideoCovering()) {
     renderer.clear();
@@ -7366,7 +7301,7 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
 #wzaEmoteWheel.open{display:block}
 #wzaEmoteWheel .wza-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:26px;text-align:center;color:#ffe082;text-shadow:0 2px 6px #000}
 .wza-emote{position:absolute;width:76px;height:76px;border-radius:50%;border:2px solid #d7e3f5;background:rgba(31,44,61,.94);color:#fff;font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px;box-shadow:0 2px 8px #0008}
-.wza-emote span{font-size:24px;line-height:1}.wza-emote:active{background:#276a49;border-color:#8dffb0;transform:scale(.95)}
+.wza-emote span{font-size:24px;line-height:1}.wza-emote small{display:block;font:800 7px/1 Arial,sans-serif;letter-spacing:.15px;color:#dbe7f4;white-space:nowrap;text-shadow:0 1px 3px #000}.wza-emote:active{background:#276a49;border-color:#8dffb0;transform:scale(.95)}
 .wza-emote.selected{background:linear-gradient(145deg,#245f49,#142d29)!important;border:3px solid #8dffb0!important;box-shadow:0 0 0 3px rgba(141,255,176,.22),0 0 18px rgba(141,255,176,.75)!important;transform:scale(1.06)}
 #wzaEmoteWheel .wza-center small{display:block;font-size:10px;letter-spacing:1px;color:#c8d4e2;margin-top:6px}
 #wzaEmoteWheel [data-emote="1"]{left:calc(50% - 38px);top:2%}
@@ -7376,8 +7311,10 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
 #wzaEmoteWheel [data-emote="5"]{left:3%;bottom:19%}
 #wzaEmoteWheel [data-emote="6"]{left:3%;top:19%}
 #wzaEmoteWheel .wza-emote{font-size:0;width:clamp(54px,18vw,76px);height:clamp(54px,18vw,76px)}
-#wzaEmoteWheel .wza-emote span{font-size:27px}
-#wzaEmoteWheel .wza-center small{display:none!important}
+#wzaEmoteWheel .wza-emote span{font-size:23px}
+#wzaEmoteWheel .wza-emote small{font-size:7px;line-height:1;margin-top:2px}
+#wzaEmoteWheel .wza-center small{display:block!important}
+#wzaEmoteWheel .wza-center small{display:block!important}
 #wzaEmoteToast{position:fixed;left:50%;top:18%;transform:translateX(-50%);z-index:10011;padding:8px 14px;background:#07101edb;border:1px solid #ffe082;border-radius:8px;color:#fff;font-weight:800;display:none;pointer-events:none}
 @media(pointer:coarse){#wzaEmoteBtn{right:8px;top:136px;width:44px;height:44px;font-size:22px}#wzaProneBtn{right:16px;bottom:188px}}
 
@@ -7436,17 +7373,17 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
 #wzaEmoteWheel [data-emote="10"]{left:26.5%!important;top:19.2%!important}
 </style>
 <div id="wzaEmoteWheel" aria-label="Emote wheel">
- <div class="wza-center">EMOTES</div>
- <button class="wza-emote" data-emote="1" aria-label="Play emote 1"><span>🙌</span></button>
- <button class="wza-emote" data-emote="2" aria-label="Play emote 2"><span>🕺</span></button>
- <button class="wza-emote" data-emote="3" aria-label="Play emote 3"><span>🧎</span></button>
- <button class="wza-emote" data-emote="4" aria-label="Play emote 4"><span>🤝</span></button>
- <button class="wza-emote" data-emote="5" aria-label="Play emote 5"><span>💃</span></button>
- <button class="wza-emote" data-emote="6" aria-label="Play emote 6"><span>👋</span></button>
- <button class="wza-emote" data-emote="7" aria-label="Play emote 7"><span>😂</span></button>
- <button class="wza-emote" data-emote="8" aria-label="Play emote 8"><span>🙏</span></button>
- <button class="wza-emote" data-emote="9" aria-label="Play emote 9"><span>💃</span></button>
- <button class="wza-emote" data-emote="10" aria-label="Play emote 10"><span>🪵</span></button>
+ <div class="wza-center">EMOTES<small id="wzaEmoteName">SELECT AN EMOTE</small></div>
+ <button class="wza-emote" data-emote="1" aria-label="Celebrate"><span>🙌</span><small>CELEBRATE</small></button>
+ <button class="wza-emote" data-emote="2" aria-label="Dance"><span>🕺</span><small>DANCE</small></button>
+ <button class="wza-emote" data-emote="3" aria-label="Kneel"><span>🧎</span><small>KNEEL</small></button>
+ <button class="wza-emote" data-emote="4" aria-label="Handshake"><span>🤝</span><small>HANDSHAKE</small></button>
+ <button class="wza-emote" data-emote="5" aria-label="Ballet dance"><span>💃</span><small>BALLET</small></button>
+ <button class="wza-emote" data-emote="6" aria-label="Wave"><span>👋</span><small>WAVE</small></button>
+ <button class="wza-emote" data-emote="7" aria-label="Laugh"><span>😂</span><small>LAUGH</small></button>
+ <button class="wza-emote" data-emote="8" aria-label="Pray"><span>🙏</span><small>PRAY</small></button>
+ <button class="wza-emote" data-emote="9" aria-label="Rumba dance"><span>💃</span><small>RUMBA</small></button>
+ <button class="wza-emote" data-emote="10" aria-label="Tung Tung"><span>🪵</span><small>TUNG TUNG</small></button>
 </div><div id="wzaEmoteToast"></div>
 <script id="wzaExtraFeaturesScript">
 (function(){
@@ -7454,16 +7391,34 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
  const $id=id=>document.getElementById(id);
  let gyroMode='always',gyroEnabled=false,lastGamma=null,lastBeta=null,gyroBusy=false;
  try{const savedMode=localStorage.getItem('wzaGyroMode');if(['always','scope','off'].includes(savedMode))gyroMode=savedMode;}catch(_){}
- let proneOn=false, emoteBusy=false, localAnimAvatar=null, localAnimTpl=null, localAnimMixer=null, customClips={}, customActions={}, emoteTimer=0, selectedEmote=1;
+ let proneOn=false, emoteBusy=false, localAnimAvatar=null, localAnimTpl=null, localAnimMixer=null, customClips={}, customActions={}, emoteTimer=0, selectedEmote=1, localEmoteProc=null, aimLockEnabled=true;
+ try{const savedAim=localStorage.getItem('wzaAimLock');if(savedAim!==null)aimLockEnabled=savedAim==='1';}catch(_){}
  const wheel=$id('wzaEmoteWheel'),toast=$id('wzaEmoteToast');
- const animFiles={prone:'models/prone.fbx',shoot:'models/shoot.fbx',emote1:'models/emote1.fbx',emote2:'models/emote2.fbx',emote3:'models/emote3.fbx',emote4:'models/emote4.fbx',emote5:'models/emote5.fbx',emote6:'models/emote6.fbx',emote7:'./Laughing.fbx',emote8:'./Praying.fbx',emote9:'./Rumba%20Dancing.fbx',emote10:'./tungtung.fbx'};
- const loadedClips={};
+ const animFiles={prone:'models/prone.fbx',shoot:'models/shoot.fbx',emote1:'models/emote1.fbx',emote2:'models/emote2.fbx',emote3:'models/emote3.fbx',emote4:'models/emote4.fbx',emote5:'models/emote5.fbx',emote6:'models/emote6.fbx',emote7:'Laughing.fbx',emote8:'Praying.fbx',emote9:'Rumba Dancing.fbx',emote10:'tungtung.fbx'};
+ const animFileVariants={
+  prone:['models/prone.fbx','models/Prone.fbx','Models/prone.fbx','prone.fbx'],
+  shoot:['models/shoot.fbx','models/Shoot.fbx','Models/shoot.fbx','shoot.fbx'],
+  emote1:['models/emote1.fbx','models/Emote1.fbx','Models/emote1.fbx','emote1.fbx'],
+  emote2:['models/emote2.fbx','models/Emote2.fbx','Models/emote2.fbx','emote2.fbx'],
+  emote3:['models/emote3.fbx','models/Emote3.fbx','Models/emote3.fbx','emote3.fbx'],
+  emote4:['models/emote4.fbx','models/Emote4.fbx','Models/emote4.fbx','emote4.fbx'],
+  emote5:['models/emote5.fbx','models/Emote5.fbx','Models/emote5.fbx','emote5.fbx'],
+  emote6:['models/emote6.fbx','models/Emote6.fbx','Models/emote6.fbx','emote6.fbx'],
+  emote7:['Laughing.fbx','laughing.fbx','models/Laughing.fbx','models/laughing.fbx'],
+  emote8:['Praying.fbx','praying.fbx','models/Praying.fbx','models/praying.fbx'],
+  emote9:['Rumba Dancing.fbx','Rumba%20Dancing.fbx','rumba dancing.fbx','models/Rumba Dancing.fbx','models/Rumba%20Dancing.fbx'],
+  emote10:['tungtung.fbx','TungTung.fbx','models/tungtung.fbx','models/TungTung.fbx']
+ };
+ const EMOTE_NAMES=['CELEBRATE','DANCE','KNEEL','HANDSHAKE','BALLET','WAVE','LAUGH','PRAY','RUMBA','TUNG TUNG'];
+ const loadedClips={},loadedAnimObjs={},customAnimationPromises={};
+ let customAnimLoader=null,customAnimationsReady=Promise.resolve([]);
  function toastMsg(msg){if(!toast)return;toast.textContent=msg;toast.style.display='block';clearTimeout(emoteTimer);emoteTimer=setTimeout(()=>toast.style.display='none',1500);}
  function activeAim(){return !!(typeof adsToggle!=='undefined'&&adsToggle);}
  function addMobileButtons(){
   const right=$id('tcRight');
   if(right&&!$id('wzaProneBtn')){const b=document.createElement('button');b.id='wzaProneBtn';b.type='button';b.className='tcb tcSm';b.textContent='PRONE';right.appendChild(b);b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();toggleProne();});}
   if(right&&!$id('wzaEmoteBtnTc')){const b=document.createElement('button');b.id='wzaEmoteBtnTc';b.type='button';b.className='tcb tcSm';b.setAttribute('aria-label','Emote button');b.textContent='☺';right.appendChild(b);b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();toggleWheel();});}
+  const aim=$id('wzaAimLockBtn');if(aim&&!aim.dataset.wzaBound){aim.dataset.wzaBound='1';const flip=e=>{if(e){e.preventDefault();e.stopPropagation();}setAimLock(!aimLockEnabled);};aim.addEventListener('pointerdown',e=>{aim._wzaPending=true;flip(e);});aim.addEventListener('click',e=>{if(aim._wzaPending){aim._wzaPending=false;e.preventDefault();e.stopPropagation();return;}flip(e);});syncAimLockUI();}
   const tcAll=$id('touchControls');
   if(tcAll&&!$id('wzaTppBtn')){const b=document.createElement('button');b.id='wzaTppBtn';b.type='button';b.className='tcb tcSm';b.setAttribute('aria-label','FPP / TPP view');b.textContent=tppOn?'TPP':'FPP';tcAll.appendChild(b);let pend=false;b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();pend=true;toggleTpp();});b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();if(pend){pend=false;return;}toggleTpp();});}
   const hud=$id('hud'); if(hud&&!$id('wzaEmoteBtn')){const b=document.createElement('button');b.id='wzaEmoteBtn';b.type='button';b.setAttribute('aria-label','Open emotes');b.textContent='☺';hud.appendChild(b);b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();toggleWheel();});}
@@ -7661,14 +7616,43 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   toastMsg(proneOn?'PRONE':'STANDING');
   if(proneOn)showAvatarForAction('prone');else if(localAnimAvatar)localAnimAvatar.group.visible=false;
  }
- function syncEmoteSelection(){if(!wheel)return;wheel.querySelectorAll('[data-emote]').forEach(b=>{const selected=Number(b.dataset.emote)===selectedEmote;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));});}
+ function syncEmoteSelection(){if(!wheel)return;wheel.querySelectorAll('[data-emote]').forEach(b=>{const selected=Number(b.dataset.emote)===selectedEmote;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));});const name=$id('wzaEmoteName');if(name)name.textContent=EMOTE_NAMES[selectedEmote-1]||'SELECT AN EMOTE';}
  function cycleEmote(delta){selectedEmote=((selectedEmote-1+delta+10)%10)+1;syncEmoteSelection();}
  function toggleWheel(){if(!wheel)return;const opening=!wheel.classList.contains('open');wheel.classList.toggle('open',opening);if(opening)syncEmoteSelection();}
  function closeWheel(){if(wheel)wheel.classList.remove('open');}
+ function loadCustomAnimation(key){
+  if(loadedClips[key])return Promise.resolve(loadedClips[key]);
+  if(customAnimationPromises[key])return customAnimationPromises[key];
+  if(typeof THREE==='undefined'||typeof THREE.FBXLoader!=='function')return Promise.resolve(null);
+  const paths=animFileVariants[key]||[animFiles[key]].filter(Boolean),urls=[];
+  // Use the full Web/APK path list for the primary file; keep case/name fallbacks short.
+  if(paths.length){
+   const primary=paths[0],base=typeof wzAssetCandidates==='function'?wzAssetCandidates(primary):[primary];
+   base.forEach(u=>{if(!urls.includes(u))urls.push(u);});
+   paths.slice(1).forEach(path=>{[path,'./'+path].forEach(u=>{if(!urls.includes(u))urls.push(u);});});
+   try{const decoded=decodeURIComponent(primary);if(decoded!==primary&& !urls.includes(decoded))urls.push(decoded);}catch(_){}
+  }
+  if(!customAnimLoader)customAnimLoader=new THREE.FBXLoader();
+  customAnimationPromises[key]=new Promise(resolve=>{
+   let at=0;
+   const next=()=>{
+    if(at>=urls.length){console.warn('[WZA] Animation not found; procedural emote fallback enabled:',key,paths);resolve(null);return;}
+    const url=urls[at++];
+    customAnimLoader.load(url,obj=>{
+     const clip=obj&&obj.animations&&obj.animations.slice().sort((a,b)=>b.tracks.length-a.tracks.length)[0];
+     if(clip&&clip.tracks&&clip.tracks.length){loadedClips[key]=clip;loadedAnimObjs[key]=obj;console.info('[WZA] Animation loaded:',key,url,'tracks:',clip.tracks.length);resolve(clip);}
+     else next();
+    },undefined,()=>next());
+   };
+   next();
+  });
+  return customAnimationPromises[key];
+ }
  function loadCustomAnimations(){
-  if(typeof THREE==='undefined'||typeof THREE.FBXLoader!=='function')return;
-  const loader=new THREE.FBXLoader();
-  Object.entries(animFiles).forEach(([key,path])=>loader.load(path,obj=>{if(obj.animations&&obj.animations[0])loadedClips[key]=obj.animations[0];},undefined,()=>console.warn('[WZA] Animation not loaded:',path)));
+  // Gameplay-critical prone/shoot clips are warmed up at boot. Emotes load on demand.
+  const keys=['prone','shoot'];
+  customAnimationsReady=Promise.all(keys.map(k=>loadCustomAnimation(k)));
+  return customAnimationsReady;
  }
  let localAnimChar=-1, avatarBuilding=null, emoteEndTimer=0;
  function avatarScale(){return (typeof isTraining==='function'&&isTraining()&&typeof TRAIN_CHAR_SCALE==='number')?TRAIN_CHAR_SCALE:1;}
@@ -7679,7 +7663,42 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   // same facing as remote players: root yaw = look yaw + PI, plus the model's own base rotation
   w.group.rotation.y=player.yaw+Math.PI+((localAnimTpl&&localAnimTpl.def&&localAnimTpl.def.rot)||0)+((localAnimTpl&&localAnimTpl.faceFix)||0);
  }
- function syncLocalAvatar(dt){if(localAnimAvatar&&localAnimAvatar.group.visible){placeLocalAvatar();if(localAnimMixer&&!tppDrive)localAnimMixer.update(dt);}}
+ function syncLocalAvatar(dt){
+  if(!localAnimAvatar||!localAnimAvatar.group.visible)return;
+  placeLocalAvatar();
+  if(localEmoteProc&&localEmoteProc.inst===localAnimAvatar){
+   localEmoteProc.t+=dt;wzaProceduralEmoteStep(localAnimAvatar,localEmoteProc.n,localEmoteProc.t);
+   if(localEmoteProc.t>=localEmoteProc.duration)endEmote(true);
+  }else if(localAnimMixer&&!tppDrive)localAnimMixer.update(dt);
+ }
+ function wzaResetProceduralPose(inst){
+  if(!inst)return;
+  (inst.procBones||[]).forEach(e=>{if(e.bone&&e.rest)e.bone.quaternion.copy(e.rest);});
+  if(inst.bob){inst.bob.position.set(0,0,0);inst.bob.rotation.set(0,0,0);inst.bob.scale.set(1,1,1);}
+ }
+ function wzaProceduralEmoteStep(inst,n,t){
+  if(!inst)return;
+  const a=Math.sin(t*5.4),b=Math.sin(t*2.7),c=Math.sin(t*8.2),q=new THREE.Quaternion();
+  const pose={};
+  const set=(r,x=0,y=0,z=0)=>{pose[r]=[x,y,z];};
+  if(n===1){set('L_upperarm',-1.25+a*.10,0,.82);set('R_upperarm',-1.25-a*.10,0,-.82);set('L_forearm',-.55+a*.16);set('R_forearm',-.55-a*.16);set('spine',-.08);}
+  else if(n===2){set('L_upperarm',-.65+a*.62,0,.48);set('R_upperarm',-.65-a*.62,0,-.48);set('L_forearm',-.45);set('R_forearm',-.45);set('L_upleg',a*.38);set('R_upleg',-a*.38);set('spine',0,b*.18);set('hips',0,b*.24);}
+  else if(n===3){set('L_upleg',.82);set('R_upleg',.82);set('L_shin',-1.0);set('R_shin',-1.0);set('spine',.24);set('L_upperarm',-.35,0,.25);set('R_upperarm',-.35,0,-.25);}
+  else if(n===4){set('R_upperarm',-1.12+a*.06,0,-.22);set('R_forearm',-.72+a*.14);set('L_upperarm',-.35,0,.15);set('spine',-.04);}
+  else if(n===5){set('L_upperarm',-.8+a*.55,0,.7);set('R_upperarm',-.8-a*.55,0,-.7);set('L_forearm',-.45);set('R_forearm',-.45);set('L_upleg',a*.32);set('R_upleg',-a*.32);set('hips',0,b*.28);}
+  else if(n===6){set('R_upperarm',-1.55,0,-.35);set('R_forearm',-.55+a*.55);set('L_upperarm',-.25,0,.12);set('spine',-.04);}
+  else if(n===7){set('spine',.34+Math.abs(a)*.08);set('neck',-.18);set('head',-.15+Math.sin(t*8)*.08);set('L_upperarm',-.72,0,.32);set('R_upperarm',-.72,0,-.32);set('L_forearm',-.9);set('R_forearm',-.9);}
+  else if(n===8){set('L_upperarm',-1.0,0,.18);set('R_upperarm',-1.0,0,-.18);set('L_forearm',-.75);set('R_forearm',-.75);set('head',.18);set('spine',.10);}
+  else if(n===9){set('L_upperarm',-.75+a*.24,0,.88);set('R_upperarm',-.75-a*.24,0,-.88);set('L_forearm',-.3);set('R_forearm',-.3);set('hips',0,b*.42);set('spine',0,b*.20);set('L_upleg',a*.22);set('R_upleg',-a*.22);}
+  else {set('L_upperarm',-1.0+a*.28,0,.62);set('R_upperarm',-1.0-a*.28,0,-.62);set('L_forearm',-.4);set('R_forearm',-.4);set('spine',-.08+Math.sin(t*3)*.08);set('hips',0,b*.16);}
+  (inst.procBones||[]).forEach(e=>{
+   const r=e.role||'',v=pose[r]||(/^(spine|neck)/.test(r)?pose[r.replace(/\d+$/,'')]:null);
+   if(!v||!e.bone)return;
+   q.setFromEuler(new THREE.Euler(v[0],v[1],v[2],'XYZ'));
+   e.bone.quaternion.copy(e.rest).multiply(q);
+  });
+  if(inst.bob){inst.bob.position.y=Math.sin(t*7.0)*.025+(n===3?-.08:0);inst.bob.rotation.y=Math.sin(t*2.7)*.10;inst.bob.rotation.z=Math.sin(t*5.4)*.035;}
+ }
  // FBX clip -> this character's skeleton (cached per character). wzBake reads wzAnim.clips[key], so it is registered only for the bake.
  function getAdapted(tpl,key){
   const clip=loadedClips[key];if(!clip||!tpl)return null;
@@ -7688,10 +7707,13 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   let out=null;
   try{
    if(typeof wzBake==='function'&&tpl.rolesOK&&typeof wzAnim!=='undefined'){
-    const had=wzAnim.clips[key];wzAnim.clips[key]=clip;
-    try{out=wzBake(tpl,key);}finally{if(had===undefined)delete wzAnim.clips[key];else wzAnim.clips[key]=had;}
+    const hadClip=wzAnim.clips[key],hadObj=wzAnim.objs[key];
+    wzAnim.clips[key]=clip;
+    if(loadedAnimObjs[key])wzAnim.objs[key]=loadedAnimObjs[key];
+    try{out=wzBake(tpl,key,loadedAnimObjs[key]?key:'idle');}
+    finally{if(hadClip===undefined)delete wzAnim.clips[key];else wzAnim.clips[key]=hadClip;if(hadObj===undefined)delete wzAnim.objs[key];else wzAnim.objs[key]=hadObj;}
    }
-   if(!out||!out.tracks||out.tracks.length<4)out=(typeof wzRetarget==='function'&&tpl.compat)?wzRetarget(clip,tpl.names):null;
+   if(!out||!out.tracks||!out.tracks.length)out=(typeof wzRetarget==='function'&&tpl.compat)?wzRetarget(clip,tpl.names):null;
   }catch(err){console.warn('[WZA] Clip retarget failed',key,err);out=null;}
   if(out&&(!out.tracks||!out.tracks.length))out=null;
   tpl.__wzaAdapt[key]=out;return out;
@@ -7770,34 +7792,38 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   if(!root||!root.userData)return false;
   const w=root.userData.wz,now=performance.now();
   if(n<1||n>10){
-   if(w){w.hold=0;if(w.mixer&&w.cur&&w.act[w.cur]){try{w.act[w.cur].fadeOut(0.08);}catch(_){}}}
+   if(w){w.hold=0;if(w.mixer&&w.cur&&w.act[w.cur]){try{w.act[w.cur].fadeOut(0.08);}catch(_){}}wzaResetProceduralPose(w);}
    root.userData.wzaEmote=null;return true;
   }
-  if(w&&w.mixer&&w.tpl&&!w.dead){
-   const key='emote'+n,clip=loadedClips[key];
-   if(!clip){root.userData.wzaEmote={n:n,until:now+2600,t:0};if(attempt<50)setTimeout(()=>{if(root.userData&&root.userData.wzaEmote&&root.userData.wzaEmote.n===n)window.wzaPlayRemoteEmote(root,n,attempt+1);},100);return false;}
+  const key='emote'+n,clip=loadedClips[key];
+  if(w&&w.mixer&&w.tpl&&!w.dead&&clip){
    w.eact=w.eact||{};let a=w.eact[key];
-   if(!a){const ad=getAdapted(w.tpl,key);if(!ad){root.userData.wzaEmote={n:n,until:now+2600,t:0};if(attempt<50)setTimeout(()=>{if(root.userData&&root.userData.wzaEmote&&root.userData.wzaEmote.n===n)window.wzaPlayRemoteEmote(root,n,attempt+1);},100);return false;}a=w.mixer.clipAction(ad);a.setLoop(THREE.LoopOnce,1);a.clampWhenFinished=true;w.eact[key]=a;}
-   playOn(w,key,a);w.hold=now+Math.max(900,(clip.duration||2.2)*1000)+150;root.userData.wzaEmote={n:n,until:w.hold,t:0};return true;
+   if(!a){const ad=getAdapted(w.tpl,key);if(ad){a=w.mixer.clipAction(ad);a.setLoop(THREE.LoopOnce,1);a.clampWhenFinished=true;w.eact[key]=a;}}
+   if(a){playOn(w,key,a);w.hold=now+Math.max(900,(clip.duration||2.2)*1000)+150;root.userData.wzaEmote={n:n,until:w.hold,t:0,procedural:false};return true;}
+  }
+  // Every groom gets a visible fallback pose even when its FBX emote is missing or its rig is unusual.
+  if(w&&!w.dead){
+   if(w.mixer)try{w.mixer.stopAllAction();}catch(_){}
+   w.cur='proc-emote';w.hold=now+3100;root.userData.wzaEmote={n:n,until:w.hold,t:0,procedural:true};
+   loadCustomAnimation(key).catch(()=>{});
+   return true;
   }
   // Built-in blue soldier has no FBX skeleton: animate its body parts procedurally instead.
-  if(root.userData.wzaParts&&Number(root.userData.wzIdx)===10){root.userData.wzaEmote={n:n,until:now+2600,t:0};return true;}
-  root.userData.wzaEmote={n:n,until:now+6500,t:0};
-  if(attempt<50)setTimeout(()=>{if(root.userData&&root.userData.wzaEmote&&root.userData.wzaEmote.n===n)window.wzaPlayRemoteEmote(root,n,attempt+1);},100);
-  else if(root.userData.wzaParts){root.userData.wzaEmote={n:n,until:now+2200,t:0};}
+  if(root.userData.wzaParts){root.userData.wzaEmote={n:n,until:now+2600,t:0,procedural:true};return true;}
+  root.userData.wzaEmote={n:n,until:now+2200,t:0,procedural:true};
   return false;
  };
  window.wzaTickRemoteEmote=function(root,dt){
   const st=root&&root.userData&&root.userData.wzaEmote;if(!st)return;
-  st.t+=dt;const p=root.userData.wz?null:root.userData.wzaParts;
+  st.t+=dt;const w=root.userData.wz,p=w?null:root.userData.wzaParts;
+  if(st.procedural&&w){wzaProceduralEmoteStep(w,st.n,st.t);}
   if(p){const wave=Math.sin(st.t*5.5),n=st.n;
    if(p.armL)p.armL.rotation.x=n===1?-1.7+wave*.18:-0.9+wave*.35;
    if(p.armR)p.armR.rotation.x=n===1?-1.7-wave*.18:-1.15-wave*.3;
    if(p.legL)p.legL.rotation.x=wave*.08;if(p.legR)p.legR.rotation.x=-wave*.08;
   }
-  if(performance.now()>=st.until){root.userData.wzaEmote=null;if(root.userData.wz)root.userData.wz.hold=0;if(p){if(p.armL)p.armL.rotation.x=-0.35;if(p.armR)p.armR.rotation.x=-0.65;if(p.legL)p.legL.rotation.x=0;if(p.legR)p.legR.rotation.x=0;}}
+  if(performance.now()>=st.until){root.userData.wzaEmote=null;if(w){w.hold=0;if(st.procedural){wzaResetProceduralPose(w);if(w.mixer){w.cur='';wzSet(w,'idle',1);}}}if(p){if(p.armL)p.armL.rotation.x=-0.35;if(p.armR)p.armR.rotation.x=-0.65;if(p.legL)p.legL.rotation.x=0;if(p.legR)p.legR.rotation.x=0;}}
  };
-// Dusre player ki shoot.fbx animation (tr_shot / shot message aate hi)
  window.wzaPlayRemoteShoot=function(root){
   const w=root&&root.userData&&root.userData.wz;if(!w||!w.mixer||!w.tpl||w.dead)return false;
   const clip=loadedClips.shoot;if(!clip)return false;
@@ -7814,7 +7840,8 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   clearTimeout(emoteEndTimer);
   if(!emoteBusy)return;
   emoteBusy=false;
-  const w=localAnimAvatar;if(w){try{wzSet(w,'idle',1);}catch(_){}w.group.visible=proneOn;}
+  const wasProc=!!localEmoteProc;localEmoteProc=null;
+  const w=localAnimAvatar;if(w){if(wasProc)wzaResetProceduralPose(w);try{if(w.mixer){w.cur='';wzSet(w,'idle',1);}}catch(_){}w.group.visible=proneOn;}
   if(send)broadcastEmote(0);
  }
  function cancelEmote(){endEmote(true);}
@@ -7916,22 +7943,31 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
  };
  {const _emoteCamOrig=window.wzaEmoteCam;window.wzaEmoteCam=function(){return _emoteCamOrig()?true:tppCam();};}
  document.addEventListener('keydown',e=>{if(e.code===binds.tpp&&!e.repeat&&typeof state!=='undefined'&&state==='playing'){e.preventDefault();toggleTpp();}});
- function playEmote(n){
+ async function playEmote(n){
+  n=Math.max(1,Math.min(10,Math.floor(Number(n)||1)));
   closeWheel();if(typeof state==='undefined'||state!=='playing')return;
   if(emoteBusy){toastMsg('PLEASE WAIT');return;}
   if(proneOn)toggleProne(false);
-  const key='emote'+n;
-  emoteBusy=true;
-  ensureAvatar().then(ok=>{
-   if(!emoteBusy)return;/* fire se cancel ho chuka */if(!ok||!localAnimAvatar){emoteBusy=false;toastMsg('EMOTE MODEL NOT READY');return;}
-   if(!loadedClips[key]){emoteBusy=false;toastMsg('EMOTE FILE MISSING: '+(animFiles[key]||('models/'+key+'.fbx')));return;}
-   const a=localAction(key);
-   if(!a||!localAnimAvatar.mixer){emoteBusy=false;toastMsg('EMOTE NOT SUPPORTED FOR THIS CHARACTER');return;}
-   const w=localAnimAvatar;placeLocalAvatar();w.group.visible=true;if(tppOn){w.group.position.set(player.pos.x,player.pos.y,player.pos.z);}playOn(w,key,a);
-   broadcastEmote(n);
-   clearTimeout(emoteEndTimer);
-   emoteEndTimer=setTimeout(()=>endEmote(true),Math.max(900,(loadedClips[key].duration||2.2)*1000)+150);
-  });
+  const key='emote'+n;emoteBusy=true;
+  try{
+   const ok=await ensureAvatar();
+   if(!emoteBusy)return;
+   if(!ok||!localAnimAvatar){emoteBusy=false;toastMsg('CHARACTER MODEL NOT READY');return;}
+   // Give the requested FBX a chance to load. If it is missing, every groom still gets a procedural emote.
+   const clip=await Promise.race([loadCustomAnimation(key),new Promise(resolve=>setTimeout(()=>resolve(null),2200))]);
+   if(!emoteBusy)return;
+   const w=localAnimAvatar;placeLocalAvatar();w.group.visible=true;
+   if(tppOn)w.group.position.set(player.pos.x,player.pos.y,player.pos.z);
+   let action=null;
+   if(clip&&w.mixer)action=localAction(key);
+   if(action){localEmoteProc=null;playOn(w,key,action);}
+   else{
+    if(w.mixer)try{w.mixer.stopAllAction();}catch(_){}
+    w.cur='proc-emote';localEmoteProc={inst:w,n,t:0,duration:3.1};
+   }
+   broadcastEmote(n);toastMsg('EMOTE: '+EMOTE_NAMES[n-1]);
+   clearTimeout(emoteEndTimer);emoteEndTimer=setTimeout(()=>endEmote(true),Math.max(900,((action&&clip&&clip.duration)||3.1)*1000)+150);
+  }catch(err){console.warn('[WZA] emote failed',err);if(emoteBusy){const w=localAnimAvatar;if(w){if(w.mixer)try{w.mixer.stopAllAction();}catch(_){}w.group.visible=true;localEmoteProc={inst:w,n,t:0,duration:3.1};broadcastEmote(n);clearTimeout(emoteEndTimer);emoteEndTimer=setTimeout(()=>endEmote(true),3250);}else{emoteBusy=false;toastMsg('EMOTE NOT READY');}}}
  }
  // Mouse wheel navigates the emote wheel instead of changing weapons while it is open.
  wheel?.querySelectorAll('[data-emote]').forEach(b=>b.addEventListener('mouseenter',()=>{selectedEmote=Number(b.dataset.emote);syncEmoteSelection();}));
@@ -7954,11 +7990,50 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
  window.wzaEnsureGyro=function(){ensureGyroAllModes();gyroReset();};   // har mode start par: listener chalu + fresh baseline
  window.wzaGyroState={get(){return{mode:gyroMode,sens:gyroSens,axes:Object.assign({},gyroAxes),cal:gyroCalibration?Object.assign({},gyroCalibration):null};},set(st){if(!st)return;gyroMode=st.mode;gyroSens=st.sens;if(st.axes)gyroAxes=Object.assign({},st.axes);gyroCalibration=st.cal;gyroReset();}};
  ensureGyroAllModes();
- addMobileButtons();syncEmoteSelection();setInterval(()=>{addMobileButtons();addGyroSettings();ensureGyroAllModes();},1200);loadCustomAnimations();
+ window.wzaEmoteReport=async function(){
+  const rows=[];for(let i=0;i<10;i++){const tpl=await wzLoadChar(i);if(!tpl){rows.push({groom:i+1,model:'MISSING',emotes:'procedural'});continue;}const ok=[];for(let n=1;n<=10;n++){const key='emote'+n;await loadCustomAnimation(key);const clip=loadedClips[key];const adapted=clip?getAdapted(tpl,key):null;ok.push(adapted&&adapted.tracks&&adapted.tracks.length?'FBX':'procedural');}rows.push({groom:i+1,model:tpl.def.name,emotes:ok.filter(x=>x==='FBX').length+'/10 FBX; fallback for rest'});}console.table(rows);return rows;
+ };
+ addMobileButtons();syncEmoteSelection();syncAimLockUI();setInterval(()=>{addMobileButtons();addGyroSettings();ensureGyroAllModes();},1200);loadCustomAnimations();
+ // Free-Fire-style soft aim lock: gently follows the closest enemy near the crosshair while ADS or firing.
+ function syncAimLockUI(){const b=$id('wzaAimLockBtn');if(!b)return;b.classList.toggle('active',!!aimLockEnabled);b.innerHTML=aimLockEnabled?'AIM<br>LOCK ON':'AIM<br>LOCK OFF';b.setAttribute('aria-pressed',String(!!aimLockEnabled));}
+ function setAimLock(on){aimLockEnabled=!!on;try{localStorage.setItem('wzaAimLock',aimLockEnabled?'1':'0');}catch(_){}syncAimLockUI();toastMsg(aimLockEnabled?'AIM LOCK ON':'AIM LOCK OFF');}
+ window.wzaSetAimLock=setAimLock;
+ function wzaAimCandidates(){
+  const out=[];
+  if(Array.isArray(enemies))enemies.forEach(e=>{if(e&&e.root&&e.root.visible&&(e.hp===undefined||e.hp>0))out.push(e.root);});
+  if(typeof gameMode!=='undefined'&&gameMode==='pvp'&&typeof pvpRemote!=='undefined'&&pvpRemote&&pvpRemote.root&&pvpRemote.root.visible&&(pvpRemote.hp===undefined||pvpRemote.hp>0))out.push(pvpRemote.root);
+  return out;
+ }
+ function wzaPickAimTarget(){
+  const list=wzaAimCandidates();let best=null,bestScore=Infinity;
+  for(const root of list){
+   try{
+    const box=new THREE.Box3().setFromObject(root);if(box.isEmpty())continue;
+    const center=box.getCenter(new THREE.Vector3());
+    const point=new THREE.Vector3(center.x,box.min.y+(box.max.y-box.min.y)*0.70,center.z);
+    const dx=point.x-player.pos.x,dz=point.z-player.pos.z,dy=point.y-(player.pos.y+(typeof eyeCur==='number'?eyeCur:1.5));
+    const dist=Math.hypot(dx,dz);if(dist<1.2||dist>65)continue;
+    const yaw=Math.atan2(-dx,-dz),pitch=Math.atan2(dy,dist);
+    const yawErr=Math.atan2(Math.sin(yaw-player.yaw),Math.cos(yaw-player.yaw)),pitchErr=pitch-player.pitch;
+    if(Math.abs(yawErr)>0.38||Math.abs(pitchErr)>0.30)continue;
+    const score=Math.abs(yawErr)*1.2+Math.abs(pitchErr)*1.5+dist*0.0015;
+    if(score<bestScore){bestScore=score;best={yawErr,pitchErr};}
+   }catch(_){}
+  }
+  return best;
+ }
+ function wzaApplyAimLock(dt){
+  if(!aimLockEnabled||typeof state==='undefined'||state!=='playing'||!(adsToggle||mouseL||mobileFire))return;
+  const target=wzaPickAimTarget();if(!target)return;
+  const strength=adsToggle?7.5:4.2,step=Math.min(1,Math.max(0,dt)*strength);
+  player.yaw+=target.yawErr*step;
+  player.pitch=clamp(player.pitch+target.pitchErr*step,-1.25,1.25);
+ }
+ syncAimLockUI();
  // Keep prone posture active without changing the crouch key's original behavior.
  const oldUpdatePlayer=window.updatePlayer;
  // updatePlayer is a global function declaration; wrap it so prone affects speed and camera height.
- if(typeof updatePlayer==='function'&&!updatePlayer.__wzaProneWrapped){const original=updatePlayer;const wrapped=function(dt){const beforeX=player.pos.x,beforeZ=player.pos.z;if(proneOn){const oldC=crouchToggle;crouchToggle=true;try{original(dt);player.vel.x*=0.72;player.vel.z*=0.72;eyeCur=Math.min(eyeCur,0.42*(typeof isTraining==='function'&&isTraining()?TRAIN_SIZE:1));}finally{crouchToggle=oldC;}}else original(dt);/* Gloo wall is solid: block walking through it, while allowing sliding along its edge. */if(Array.isArray(glooWalls)&&glooWalls.length){const radius=0.30*(typeof isTraining==='function'&&isTraining()?TRAIN_SIZE:1);for(const w of glooWalls){const m=w.mesh;if(!m||!m.geometry||!m.geometry.parameters)continue;const c=Math.cos(m.rotation.y),sn=Math.sin(m.rotation.y);const test=(x,z)=>{const dx=x-m.position.x,dz=z-m.position.z;return {x:dx*c-dz*sn,z:dx*sn+dz*c};};const toWorld=(x,z)=>({x:m.position.x+x*c+z*sn,z:m.position.z-x*sn+z*c});const q=test(player.pos.x,player.pos.z),halfW=(m.geometry.parameters.width||3.8)/2+radius,halfD=(m.geometry.parameters.depth||0.42)/2+radius;if(Math.abs(q.x)<halfW&&Math.abs(q.z)<halfD){const qx=test(player.pos.x,beforeZ),qz=test(beforeX,player.pos.z);const blocked=(v)=>Math.abs(v.x)<halfW&&Math.abs(v.z)<halfD;if(!blocked(qx)){player.pos.z=beforeZ;player.vel.z=0;}else if(!blocked(qz)){player.pos.x=beforeX;player.vel.x=0;}else{const penX=halfW-Math.abs(q.x),penZ=halfD-Math.abs(q.z);if(penX<penZ){const sign=q.x>=0?1:-1;const p=toWorld(sign*(halfW+0.04),q.z);player.pos.x=p.x;player.pos.z=p.z;}else{const sign=q.z>=0?1:-1;const p=toWorld(q.x,sign*(halfD+0.04));player.pos.x=p.x;player.pos.z=p.z;}player.vel.x=0;player.vel.z=0;}}}}syncLocalAvatar(dt);};wrapped.__wzaProneWrapped=true;updatePlayer=wrapped;window.updatePlayer=wrapped;}
+ if(typeof updatePlayer==='function'&&!updatePlayer.__wzaProneWrapped){const original=updatePlayer;const wrapped=function(dt){try{wzaApplyAimLock(dt);}catch(_){}const beforeX=player.pos.x,beforeZ=player.pos.z;if(proneOn){const oldC=crouchToggle;crouchToggle=true;try{original(dt);player.vel.x*=0.72;player.vel.z*=0.72;eyeCur=Math.min(eyeCur,0.42*(typeof isTraining==='function'&&isTraining()?TRAIN_SIZE:1));}finally{crouchToggle=oldC;}}else original(dt);/* Gloo wall is solid: block walking through it, while allowing sliding along its edge. */if(Array.isArray(glooWalls)&&glooWalls.length){const radius=0.30*(typeof isTraining==='function'&&isTraining()?TRAIN_SIZE:1);for(const w of glooWalls){const m=w.mesh;if(!m||!m.geometry||!m.geometry.parameters)continue;const c=Math.cos(m.rotation.y),sn=Math.sin(m.rotation.y);const test=(x,z)=>{const dx=x-m.position.x,dz=z-m.position.z;return {x:dx*c-dz*sn,z:dx*sn+dz*c};};const toWorld=(x,z)=>({x:m.position.x+x*c+z*sn,z:m.position.z-x*sn+z*c});const q=test(player.pos.x,player.pos.z),halfW=(m.geometry.parameters.width||3.8)/2+radius,halfD=(m.geometry.parameters.depth||0.42)/2+radius;if(Math.abs(q.x)<halfW&&Math.abs(q.z)<halfD){const qx=test(player.pos.x,beforeZ),qz=test(beforeX,player.pos.z);const blocked=(v)=>Math.abs(v.x)<halfW&&Math.abs(v.z)<halfD;if(!blocked(qx)){player.pos.z=beforeZ;player.vel.z=0;}else if(!blocked(qz)){player.pos.x=beforeX;player.vel.x=0;}else{const penX=halfW-Math.abs(q.x),penZ=halfD-Math.abs(q.z);if(penX<penZ){const sign=q.x>=0?1:-1;const p=toWorld(sign*(halfW+0.04),q.z);player.pos.x=p.x;player.pos.z=p.z;}else{const sign=q.z>=0?1:-1;const p=toWorld(q.x,sign*(halfD+0.04));player.pos.x=p.x;player.pos.z=p.z;}player.vel.x=0;player.vel.z=0;}}}}syncLocalAvatar(dt);};wrapped.__wzaProneWrapped=true;updatePlayer=wrapped;window.updatePlayer=wrapped;}
  // Trigger shoot.fbx on every real FIRE press, not only when the prone/emote avatar happens to be visible.
  let shootHideTimer=0;function playShootAnimation(){if(typeof state==='undefined'||state!=='playing')return;if(emoteBusy)cancelEmote();if(!loadedClips.shoot)return;if(!proneOn)return;ensureAvatar().then(ok=>{if(!ok||!localAnimAvatar||!localAnimAvatar.mixer)return;const a=localAction('shoot');if(!a){console.warn('[WZA] shoot.fbx loaded but could not be retargeted to this character rig');return;}try{const w=localAnimAvatar;placeLocalAvatar();w.group.visible=true;playOn(w,'shoot',a);clearTimeout(shootHideTimer);shootHideTimer=setTimeout(()=>{if(localAnimAvatar&&!proneOn&&!emoteBusy){localAnimAvatar.group.visible=false;try{wzSet(localAnimAvatar,'idle',1);}catch(_){}}},Math.max(250,((loadedClips.shoot&&loadedClips.shoot.duration)||0.5)*1000));}catch(err){console.warn('[WZA] shoot animation failed',err);}});}
  document.addEventListener('mousedown',e=>{if(e.button===0&&emoteBusy&&typeof state!=='undefined'&&state==='playing'&&!(e.target.closest&&e.target.closest('#wzaEmoteWheel')))cancelEmote();},true);   // PC: left click = emote stop
