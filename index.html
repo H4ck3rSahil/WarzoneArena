@@ -23,6 +23,13 @@ html,body{width:100%;height:100%;min-height:100%;overflow:hidden;background:#000
 #awmScope:before{content:"";position:absolute;left:50%;top:50%;width:min(68vw,68vh);height:min(68vw,68vh);transform:translate(-50%,-50%);border:6px solid #20252a;border-radius:50%;box-shadow:0 0 0 2px rgba(180,190,195,.75),inset 0 0 13px rgba(0,0,0,.42),0 0 18px rgba(0,0,0,.9)}
 #awmScope:after{content:"";position:absolute;left:50%;top:50%;width:min(64vw,64vh);height:min(64vw,64vh);transform:translate(-50%,-50%);border-radius:50%;background:linear-gradient(to right,transparent calc(50% - .6px),rgba(15,15,15,.78) calc(50% - .6px),rgba(15,15,15,.78) calc(50% + .6px),transparent calc(50% + .6px)),linear-gradient(to bottom,transparent calc(50% - .6px),rgba(15,15,15,.78) calc(50% - .6px),rgba(15,15,15,.78) calc(50% + .6px),transparent calc(50% + .6px));clip-path:circle(50%);opacity:.9}
 #awmScope .scopeDot{position:absolute;left:50%;top:50%;width:5px;height:5px;transform:translate(-50%,-50%);border:1px solid #111;border-radius:50%;z-index:1}
+/* AK-47 / MP5 3x optic */
+#rifleScope{position:fixed;top:0;right:0;bottom:0;left:0;z-index:30;display:none;pointer-events:none;background:radial-gradient(circle at center,transparent 0,min(34vw,34vh),rgba(0,0,0,.78) min(35vw,35vh),rgba(0,0,0,.92) 100%)!important}
+#rifleScope.on{display:block}
+#rifleScope:before{content:"";position:absolute;left:50%;top:50%;width:min(70vw,70vh);height:min(70vw,70vh);transform:translate(-50%,-50%);border:4px solid #252b30;border-radius:50%;box-shadow:0 0 0 2px rgba(180,190,195,.65),inset 0 0 12px rgba(0,0,0,.45),0 0 18px rgba(0,0,0,.9)}
+#rifleScope:after{content:"";position:absolute;left:50%;top:50%;width:min(66vw,66vh);height:min(66vw,66vh);transform:translate(-50%,-50%);border-radius:50%;background:linear-gradient(to right,transparent calc(50% - .7px),rgba(12,15,18,.82) calc(50% - .7px),rgba(12,15,18,.82) calc(50% + .7px),transparent calc(50% + .7px)),linear-gradient(to bottom,transparent calc(50% - .7px),rgba(12,15,18,.82) calc(50% - .7px),rgba(12,15,18,.82) calc(50% + .7px),transparent calc(50% + .7px));clip-path:circle(50%);opacity:.95}
+#rifleScope .scopeDot{position:absolute;left:50%;top:50%;width:7px;height:7px;transform:translate(-50%,-50%);border:1.5px solid #111;border-radius:50%;z-index:1}
+#rifleScope .scope3x{position:absolute;left:50%;top:calc(50% + min(36vw,36vh));transform:translateX(-50%);font:900 12px/1 Bahnschrift,Arial,sans-serif;letter-spacing:2px;color:rgba(255,255,255,.86);text-shadow:0 1px 4px #000}
 #crosshair.awmHidden{display:none!important}
 #mobileHint{position:absolute;right:8px;bottom:58px;font-size:9px;line-height:1.5;letter-spacing:.4px;color:rgba(255,255,255,.58);text-align:right;text-shadow:0 1px 3px #000;pointer-events:none}
 #brandMark{position:absolute;left:50%;top:9px;transform:translateX(-50%);font-weight:1000;font-style:italic;font-size:12px;letter-spacing:3px;color:#fff;text-shadow:0 2px 5px #000;opacity:.88;white-space:nowrap}
@@ -645,6 +652,7 @@ document.addEventListener("click", function (e) {
   
 <audio id="headshotAudio" src="sounds/headshot.mp3" preload="auto" onerror="if(!this._r){this._r=1;this.src='headshot.mp3';}"></audio>
 <div id="awmScope" aria-hidden="true"><span class="scopeDot"></span></div>
+<div id="rifleScope" aria-hidden="true"><span class="scopeDot"></span><span class="scope3x">3X</span></div>
 
 <canvas id="c" tabindex="0" aria-label="Game area"></canvas>
 
@@ -1293,7 +1301,15 @@ function wzInstance(tpl) {
   norm.position.set(-tpl.cx * tpl.s, -tpl.minY * tpl.s, -tpl.cz * tpl.s);
   const bob = new THREE.Group(); bob.add(norm);
   const group = new THREE.Group(); group.rotation.y = (tpl.def.rot || 0) + (tpl.faceFix || 0); group.add(bob);
-  const inst = { group, bob, model, mixer: null, act: {}, cur: "", dead: false, t: Math.random() * 6, py: 0, vy: 0, tpl, hold: 0 };
+  // Keep a per-instance rest pose for rigs that do not match the FBX retarget map.
+  // These bones get a lightweight articulated idle/run animation instead of a frozen model.
+  const procRoles = wzCollect(model);
+  const procBones = [];
+  const addProc = (role, bone) => { if (bone && !procBones.some(x => x.bone === bone)) procBones.push({ role, bone, rest: bone.quaternion.clone() }); };
+  Object.keys(procRoles.single).forEach(role => addProc(role, procRoles.single[role]));
+  procRoles.spine.forEach((bone, i) => addProc("spine" + i, bone));
+  procRoles.neck.forEach((bone, i) => addProc("neck" + i, bone));
+  const inst = { group, bob, model, mixer: null, act: {}, cur: "", dead: false, t: Math.random() * 6, py: 0, vy: 0, tpl, hold: 0, procBones };
   try { if ((tpl.rolesOK || tpl.compat) && Object.keys(wzAnim.clips).length) {
     if (!tpl.clips) {
       tpl.clips = {};
@@ -1328,34 +1344,67 @@ function wzSet(w, name, ts) {
   }
   a.setEffectiveTimeScale(ts || 1);
 }
+function wzProceduralStep(w, dt, moving, speed, air, crouch) {
+  // Last-resort articulated animation for Groom rigs whose bone names do not
+  // match the shared FBX clips, or when a particular clip is unavailable.
+  w.t += dt * (moving ? 10 : 2.2);
+  const sn = Math.sin(w.t), ab = Math.abs(sn), run = !!moving;
+  w.bob.position.y = (air ? 0.14 : 0) - (crouch ? 0.16 : 0) + (run ? ab * 0.07 : sn * 0.012);
+  w.bob.rotation.z = run ? sn * 0.07 : sn * 0.012;
+  w.bob.rotation.x = run ? 0.1 + Math.sin(w.t * 2) * 0.02 : Math.sin(w.t * 0.7) * 0.008;
+  w.bob.rotation.y = run ? sn * 0.06 : Math.sin(w.t * 0.55) * 0.012;
+  w.bob.scale.set(1, run ? 1 + (ab - 0.5) * 0.03 : 1 + sn * 0.006, 1);
+  const swing = run ? Math.sin(w.t) : Math.sin(w.t * 0.7) * 0.10;
+  const leg = run ? Math.sin(w.t) * 0.62 : Math.sin(w.t * 0.7) * 0.025;
+  const bend = run ? Math.max(0, Math.sin(w.t + 0.55)) * 0.72 : 0;
+  const q = new THREE.Quaternion(), axisX = new THREE.Vector3(1, 0, 0), axisY = new THREE.Vector3(0, 1, 0), axisZ = new THREE.Vector3(0, 0, 1);
+  (w.procBones || []).forEach(entry => {
+    const r = entry.role, b = entry.bone;
+    let x = 0, y = 0, z = 0;
+    if (r === "L_upleg") x = crouch ? 0.28 + leg * 0.2 : leg;
+    else if (r === "R_upleg") x = crouch ? 0.28 - leg * 0.2 : -leg;
+    else if (r === "L_shin") x = crouch ? -0.65 + bend * 0.25 : bend;
+    else if (r === "R_shin") x = crouch ? -0.65 + Math.max(0, Math.sin(w.t + Math.PI + 0.55)) * 0.25 : Math.max(0, Math.sin(w.t + Math.PI + 0.55)) * (run ? 0.72 : 0);
+    else if (r === "L_foot") x = -bend * 0.35;
+    else if (r === "R_foot") x = -Math.max(0, Math.sin(w.t + Math.PI + 0.55)) * (run ? 0.25 : 0);
+    else if (r === "L_upperarm") { x = -swing * 0.48; z = 0.08; }
+    else if (r === "R_upperarm") { x = swing * 0.48; z = -0.08; }
+    else if (r === "L_forearm" || r === "R_forearm") x = run ? -0.18 : -0.04;
+    else if (r === "spine" || r.indexOf("spine") === 0) { y = run ? Math.sin(w.t) * 0.035 : Math.sin(w.t * 0.55) * 0.012; z = run ? Math.sin(w.t * 0.5) * 0.025 : 0; }
+    else if (r.indexOf("neck") === 0 || r === "head") y = Math.sin(w.t * 0.55) * 0.012;
+    else if (r === "hips") z = run ? Math.sin(w.t * 2) * 0.025 : Math.sin(w.t * 0.7) * 0.008;
+    q.setFromAxisAngle(axisX, x).multiply(new THREE.Quaternion().setFromAxisAngle(axisY, y)).multiply(new THREE.Quaternion().setFromAxisAngle(axisZ, z));
+    b.quaternion.copy(entry.rest).multiply(q);
+  });
+}
 function wzStep(w, dt, moving, speed, air, crouch) {
   if (!w) return;
   if (w.mixer) {
     if (!w.dead) {
-      if (w.hold && performance.now() > w.hold) w.hold = 0;   // emote/shoot khatam hone par hi (chalte waqt bhi emote chalta rahe)
+      if (w.hold && performance.now() > w.hold) w.hold = 0;
       if (!w.hold) {
         let st = "idle", ts = 1;
-        if (air && w.act.jump) st = "jump";
-        else if (crouch && w.act.crouch) st = "crouch";
+        if (air) st = "jump";
+        else if (crouch) st = "crouch";
         else if (moving) {
-          if (speed < 1.8 && w.act.walk) st = "walk";
+          if (speed < 1.8) st = "walk";
           else { st = "run"; ts = w.act.walk ? 1 : clamp(speed / 3.4, 0.55, 1.25); }
         }
-        wzSet(w, st, ts);
+        if (w.act[st]) {
+          wzSet(w, st, ts);
+          w.mixer.update(dt);
+        } else {
+          // If Idle exists but Running/Walking/Jumping is missing or cannot be
+          // retargeted for this particular groom, do not freeze on the old clip.
+          w.mixer.update(dt);
+          wzProceduralStep(w, dt, moving, speed, air, crouch);
+        }
+        return;
       }
     }
     w.mixer.update(dt);
   } else {
-    // Shared fallback for any Groom whose skeleton cannot be retargeted.
-    // Preserve the existing bob/sway motion and keep a subtle idle sway so
-    // non-compatible rigs do not appear completely frozen in the preview/game.
-    w.t += dt * (moving ? 10 : 2.2);
-    const sn = Math.sin(w.t), ab = Math.abs(sn);
-    w.bob.position.y = (air ? 0.14 : 0) + (moving ? ab * 0.07 : sn * 0.012);
-    w.bob.rotation.z = moving ? sn * 0.07 : sn * 0.012;
-    w.bob.rotation.x = moving ? 0.1 + Math.sin(w.t * 2) * 0.02 : Math.sin(w.t * 0.7) * 0.008;
-    w.bob.rotation.y = moving ? sn * 0.06 : Math.sin(w.t * 0.55) * 0.012;
-    w.bob.scale.set(1, moving ? 1 + (ab - 0.5) * 0.03 : 1 + sn * 0.006, 1);
+    wzProceduralStep(w, dt, moving, speed, air, crouch);
   }
 }
 function wzTick(root, dt, moving, speed, air) { wzStep(root.userData.wz, dt, moving, speed, air, root.userData.wzCrouch); }
@@ -1421,7 +1470,7 @@ function wzApplyChar(soldier, idx) {
   wzDress(soldier, idx);
 }
 function wzDressEnemy(soldier) { wzDress(soldier, WZ_FIRST_ENEMY + Math.floor(Math.random() * 3)); }
-// Console me wzAnimReport() chalao: groom1..10 par Idle/Running/jumping/death/prone ke kitne tracks bane (0 = us groom par wo animation nahi chali).
+// Console me wzAnimReport() chalao: groom1..10 par Idle/Running/jumping/death/prone ke kitne tracks bane (0 = FBX retarget nahi hua; articulated fallback phir bhi chalega).
 window.wzAnimReport = async function () {
   await wzAnim.ready;
   const keys = ["idle", "run", "jump", "death", "prone"], rows = [];
@@ -5196,7 +5245,7 @@ function updatePlayer(dt) {
   sprintBlend += ((sprint && hs > (isTraining() ? 1.15 : 3) ? 1 : 0) - sprintBlend) * Math.min(1, dt * 8);
 
   const normalFov = NORMAL_FOV;
-  const aimFov = curIdx === 1 ? 11.7 : (gameMode === "clash" ? 38 : 24);
+  const aimFov = curIdx === 1 ? 17.1 : ((curIdx === 0 || curIdx === 2) ? 33.4 : (gameMode === "clash" ? 38 : 24));
   const fov = lerp(normalFov, aimFov, adsT) + 7 * sprintBlend;   // sprint: thoda wide FOV = speed feel
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
   eyeCur += (eyeTarget() - eyeCur) * Math.min(1, dt * 12);
@@ -6647,15 +6696,19 @@ function frame() {
   if (!_sprintFxEl) _sprintFxEl = document.getElementById("sprintFx");
   if (_sprintFxEl) { const o = (state === "playing" && !killCam && !emoteCamOn) ? (sprintBlend * (isTraining() ? 1 : 0.85)).toFixed(2) : "0"; if (o !== _sprintFxLast) { _sprintFxLast = o; _sprintFxEl.style.opacity = o; } }
   const awmScoped = state === "playing" && curIdx === 1 && adsToggle;
+  const rifleScoped = state === "playing" && (curIdx === 0 || curIdx === 2) && adsToggle;
   const scopeEl = document.getElementById("awmScope");
+  const rifleScopeEl = document.getElementById("rifleScope");
   if (scopeEl) scopeEl.classList.toggle("on", awmScoped);
+  if (rifleScopeEl) rifleScopeEl.classList.toggle("on", rifleScoped);
+  const scopeActive = awmScoped || rifleScoped;
   const chEl = document.getElementById("crosshair");
-  if (chEl) chEl.classList.toggle("awmHidden", awmScoped);
-  if (guns[1]) guns[1], guns[1].visible = curIdx === 1 && !awmScoped;
+  if (chEl) chEl.classList.toggle("awmHidden", scopeActive);
+  if (guns[1]) guns[1].visible = curIdx === 1 && !awmScoped;
   if (!wzLobbyVideoCovering()) {
     renderer.clear();
     renderer.render(scene, camera);
-    if (showVM && !awmScoped) { renderer.clearDepth(); renderer.render(vmScene, vmCamera); }
+    if (showVM && !scopeActive) { renderer.clearDepth(); renderer.render(vmScene, vmCamera); }
   }
 }
 frame();
@@ -7505,7 +7558,9 @@ body.touch-ui #wzaEmoteBtn{display:none!important}
   const w=localAnimAvatar;tppDrive=false;
   const playing=typeof state!=='undefined'&&state==='playing'&&player.hp>0;
   if(!tppOn||!playing||activeAim()){   // FPP, ya TPP me aim (ADS/scope) karte waqt FPP view
-   if(camera.fov!==NORMAL_FOV){camera.fov=NORMAL_FOV;camera.updateProjectionMatrix();} tppZoom=0;
+   // ADS ka FOV updatePlayer() se aata hai; TPP-to-FPP transition par use reset mat karo,
+   // warna AWM 6x aur AK/MP5 3x zoom har frame cancel ho jayega.
+   if(!activeAim() && camera.fov!==NORMAL_FOV){camera.fov=NORMAL_FOV;camera.updateProjectionMatrix();} tppZoom=0;
    if(w&&!proneOn&&!emoteBusy&&w.group.visible)w.group.visible=false;
    if(tppBox&&tppBox.root.visible)tppBox.root.visible=false;
    _tppPx=player.pos.x;_tppPz=player.pos.z;
