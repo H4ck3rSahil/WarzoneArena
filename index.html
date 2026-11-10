@@ -932,18 +932,14 @@ const WZ_CHARS = [];
 const WZ_NAMES = ["KELLY", "TUNG TUNG SAHUR", "FREESTYLE", "KRATOS", "CARL JOHNSON", "SCORPION", "IRON MAN", "MADARA UCHIHA", "MINATO NAMIKAZE", "OBITO UCHIHA"];
 for (let i = 1; i <= 10; i++) {
   const isGroom10GLB = i === 10;
-  // Groom10 GLB can sit beside index.html OR inside the models folder.
-  // Root path first because the user uploaded groom10.glb beside index.html.
-  const file = isGroom10GLB ? "groom10.glb" : "models/groom" + i + ".fbx";
+  const file = isGroom10GLB ? "models/groom10.glb" : "models/groom" + i + ".fbx";
   WZ_CHARS.push({
     name: WZ_NAMES[i - 1],
     file,
-    isGroom10GLB,
     files: isGroom10GLB ? [
-      "groom10.glb", "./groom10.glb",
-      "models/groom10.glb", "./models/groom10.glb",
+      "models/groom10.glb", "models/Groom10.glb", "models/groom10.GLB",
       "Models/groom10.glb", "Models/Groom10.glb", "Models/groom10.GLB",
-      "groom10.GLB", "Groom10.glb", "Groom10.GLB"
+      "groom10.glb", "Groom10.glb", "groom10.GLB"
     ] : [file],
     rot: 0, scale: 1, p: null
   });
@@ -1235,35 +1231,6 @@ function wzBrighten(scene, k) {                 // template ke materials par ek 
     });
   });
 }
-// Groom10 GLB ke andar base-colour PNG embedded hai. Use original texture as sRGB,
-// white material tint, and double-sided rendering so the skin remains visible.
-function wzFixGroom10Materials(root) {
-  let meshCount = 0, texturedMaterials = 0;
-  root.traverse(o => {
-    if (!o.isMesh) return;
-    meshCount++;
-    o.visible = true;
-    o.frustumCulled = false;
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    mats.forEach(m => {
-      if (!m) return;
-      m.visible = true;
-      if (m.color) m.color.set(0xffffff);
-      if (m.map) {
-        if (THREE.sRGBEncoding !== undefined) m.map.encoding = THREE.sRGBEncoding;
-        m.map.needsUpdate = true;
-        texturedMaterials++;
-      }
-      if (m.isMeshStandardMaterial) {
-        m.metalness = 0;
-        m.roughness = Math.max(0.72, Number(m.roughness) || 0);
-        m.side = THREE.DoubleSide;
-      }
-      m.needsUpdate = true;
-    });
-  });
-  return { meshCount, texturedMaterials };
-}
 // Kuch groom models Sketchfab se aaye hain: rig lete hue / ulta (peeth camera ki taraf) hota hai, isliye animation ulta chalta tha.
 // Bones (Hips->Head = upar, LeftUpperArm-RightUpperArm = left) se asli direction nikaal kar poore model ko seedha khada + muh +Z kar dete hain.
 function wzAutoOrient(scene) {
@@ -1377,11 +1344,7 @@ function wzLoadChar(idx) {
             tryNext();
             return;
           }
-          if (def.isGroom10GLB) {
-            const textureInfo = wzFixGroom10Materials(loadedRoot);
-            console.info("[WZ] Groom10 embedded GLB texture prepared:", textureInfo);
-          }
-          // GLB materials and embedded textures are retained; Groom10's embedded base-colour PNG is prepared above.
+          // GLB materials and embedded textures are kept exactly as authored in the file.
           const tpl = wzBuildTpl(def, isFBX ? { scene: loadedRoot } : loaded);
           def.loadedFrom = url;
           console.info("[WZ] Character model loaded:", def.file, "from:", url, "meshes:", meshCount);
@@ -1669,7 +1632,7 @@ function wzOpenGrooming() {
   menuSubPanel.classList.add("on");
   try { wzPlaceSidePanel(); } catch (e) {}
   const cv = $("wzGrCv");
-  let rend = null, alive = true, cur = null, previewBot = null, token = 0, idx = 9, last = performance.now(); // Open Grooming on the newly uploaded Groom10 GLB.
+  let rend = null, alive = true, cur = null, previewBot = null, token = 0, idx = wzMyChar, last = performance.now();
   try { rend = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true }); }
   catch (e) { console.error("[WZ] Preview renderer fail", e);  }
   const sc = new THREE.Scene();
@@ -1690,25 +1653,11 @@ function wzOpenGrooming() {
       pivot.add(previewBot.root);
       return;
     }
-    // Show the selected model as soon as its GLB/FBX loads; do not block the preview
-    // while all optional FBX animation files are being searched/downloaded.
-    wzLoadChar(idx).then(tpl => {
+    Promise.all([wzLoadChar(idx), wzAnim.ready]).then(r => {
       if (!alive || my !== token) return;
-      if (!tpl) {
-        if (idx === 9) wzToast("GROOM10 GLB NOT FOUND — KEEP groom10.glb BESIDE index.html OR IN models/");
-        return;
-      }
-      cur = wzInstance(tpl);
-      pivot.add(cur.group);
-      // Upgrade the preview to the full retargeted clips once shared animations finish loading.
-      wzAnim.ready.then(() => {
-        if (!alive || my !== token || !cur || cur.tpl !== tpl || tpl.clipsOK) return;
-        pivot.remove(cur.group);
-        if (cur.mixer) cur.mixer.stopAllAction();
-        tpl.clips = null; tpl.clipsOK = false;
-        cur = wzInstance(tpl);
-        pivot.add(cur.group);
-      }).catch(() => {});
+      if (!r[0]) return;
+      cur = wzInstance(r[0]); pivot.add(cur.group);
+      
     }).catch(e => { console.error("[WZ] preview error", e); });
   };
   $("wzGrPrev").onclick = e => { e.preventDefault(); e.stopPropagation(); show(idx - 1); };
