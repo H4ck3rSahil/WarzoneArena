@@ -988,6 +988,9 @@ function wzRole(name) {
   const s = new Set(t), has = x => s.has(x);
   if (t.some(x => /^(end|top|nub|twist|roll|ik|pole|target|helper|corrective|jaw|eye|eyes|eyelid|brow|tongue|teeth|hair|cloth|skirt|weapon|prop|socket|attach|breast|cheek|lip|nose|ear|mouth|facial|cape|tail|finger|fingers)$/.test(x))) return null;
   const side = (has("left") || has("l")) ? "L" : ((has("right") || has("r")) ? "R" : "");
+  // groom3 uses Indonesian bone labels rather than Mixamo labels:
+  // pundak=shoulder, latas=upper arm, lbawah=forearm, tangan=hand,
+  // paha=thigh, betis=calf, kaki=foot, jkaki=toe.
   const fg = ["thumb", "index", "middle", "ring", "pinky", "pinkie", "little"].find(f => has(f));
   if (fg) {
     if (!side) return null;
@@ -996,22 +999,22 @@ function wzRole(name) {
     return side + "_" + ((fg === "pinkie" || fg === "little") ? "pinky" : fg) + n;
   }
   if (side) {
-    if (has("hand") || has("wrist")) return side + "_hand";
-    if (has("forearm") || has("lowerarm") || (has("fore") && has("arm")) || (has("lower") && has("arm")) || has("elbow")) return side + "_forearm";
-    if (has("clavicle") || has("collar")) return side + "_clavicle";
+    if (has("hand") || has("wrist") || has("tangan")) return side + "_hand";
+    if (has("forearm") || has("lowerarm") || (has("fore") && has("arm")) || (has("lower") && has("arm")) || has("elbow") || has("lbawah")) return side + "_forearm";
+    if (has("clavicle") || has("collar") || has("pundak")) return side + "_clavicle";
     if (has("shoulder")) { const nn = t.find(x => /^\d+$/.test(x)); return (nn && parseInt(nn, 10) >= 2) ? side + "_upperarm" : side + "_clavicle"; }
-    if (has("upperarm") || (has("upper") && has("arm")) || (has("arm") && !has("fore") && !has("lower"))) return side + "_upperarm";
-    if (has("upleg") || has("thigh") || has("upperleg") || ((has("upper") || has("up")) && has("leg"))) return side + "_upleg";
-    if (has("foot") || has("ankle")) return side + "_foot";
-    if (has("toe") || has("toes") || has("toebase") || has("ball")) return side + "_toe";
-    if (has("calf") || has("shin") || has("lowerleg") || (has("lower") && has("leg")) || has("knee") || has("leg")) return side + "_shin";
+    if (has("upperarm") || has("latas") || (has("upper") && has("arm")) || (has("arm") && !has("fore") && !has("lower"))) return side + "_upperarm";
+    if (has("upleg") || has("thigh") || has("paha") || has("upperleg") || ((has("upper") || has("up")) && has("leg"))) return side + "_upleg";
+    if (has("foot") || has("ankle") || has("kaki")) return side + "_foot";
+    if (has("toe") || has("toes") || has("toebase") || has("ball") || has("jkaki")) return side + "_toe";
+    if (has("calf") || has("shin") || has("betis") || has("lowerleg") || (has("lower") && has("leg")) || has("knee") || has("leg")) return side + "_shin";
     return null;
   }
   if (has("neck") && (has("lower") || has("low"))) return "neck";
-  if (has("head")) return "head";
-  if (has("neck")) return "neck";
-  if (has("hips") || has("hip") || has("pelvis")) return "hips";
-  if (has("spine") || has("chest") || has("abdomen") || has("torso")) return "spine";
+  if (has("head") || has("kepala")) return "head";
+  if (has("neck") || has("leher")) return "neck";
+  if (has("hips") || has("hip") || has("pelvis") || has("com")) return "hips";
+  if (has("spine") || has("chest") || has("abdomen") || has("torso") || has("perut") || has("dada")) return "spine";
   return null;
 }
 function wzCollect(root) {
