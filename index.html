@@ -900,7 +900,7 @@ const modelFiles = {
 const assetReady = Object.keys(modelFiles).map(key => loadGLB(key, modelFiles[key]));
 
 /* ================= WZ CHARACTER SYSTEM: Grooming + 3D models + animations =================
-   - Player models: models/groom1.glb ... groom10.glb   (index 0..9)
+   - Player models: models/groom1.fbx ... groom10.fbx   (index 0..9)
    - Enemy models : models/enemie1.glb ... enemie3.glb   (index 10..12)
    - All ten selectable Grooms use this shared animation pipeline: compatible humanoid rigs
      use the cached FBX clips with retargeting; models whose rigs cannot be mapped use the
@@ -1401,7 +1401,7 @@ function wzDress(soldier, idx) {
   if (WZ_CHARS[idx] && WZ_CHARS[idx].isBlueSoldier) { wzApplyBlueSoldier(soldier); return; }
   Promise.all([wzLoadChar(idx), wzAnim.ready]).then(async r => {
     let tpl = r[0];
-    if (!tpl && idx < WZ_FIRST_ENEMY) {   // chuni hui groom ki .glb nahi mili -> pehli available groom
+    if (!tpl && idx < WZ_FIRST_ENEMY) {   // chuni hui groom ki .fbx nahi mili -> pehli available groom
       for (let k = 1; k < WZ_FIRST_ENEMY && !tpl; k++) { if (ud.wzIdx !== idx) return; tpl = await wzLoadChar((idx + k) % WZ_FIRST_ENEMY); }
       if (tpl) console.warn("[WZ] groom" + (idx + 1) + ".glb missing -> fallback model use hua:", tpl.def.file);
     }
@@ -1441,12 +1441,10 @@ function wzOpenGrooming() {
   const title = $("subTitle"), content = $("subContent");
   waitingBind = null;
   title.textContent = "GROOMING";
-  content.innerHTML = '<div id="wzGrWrap" style="text-align:center">' +
-    '<canvas id="wzGrCv" style="width:100%;max-width:210px;height:min(27vh,210px);display:block;margin:2px auto 0;border:1px solid rgba(255,255,255,.1);background:radial-gradient(circle at 50% 35%,#2a3340,#0c1016)"></canvas>' +
-    '<div id="wzGrStatus" style="min-height:14px;margin:3px auto 0;max-width:95%;font:10px/1.25 Arial,sans-serif;color:#ffcf50;opacity:.9"></div>' +
-    '<div id="wzGrName" style="margin:6px 0;padding-bottom:5px;font:600 clamp(11px,1.1vw,14px) Georgia,\'Times New Roman\',serif;letter-spacing:2px;color:#ffcf50;border-bottom:1px solid rgba(255,255,255,.07)"></div>' +
-    '<div style="display:flex;gap:6px;justify-content:center"><button class="wzGrB" id="wzGrPrev" type="button">&#9664;</button><button class="wzGrB" id="wzGrSel" type="button">SELECT</button><button class="wzGrB" id="wzGrNext" type="button">&#9654;</button></div>' +
-    '<div style="margin-top:6px"><button class="wzGrB" id="wzGrFlip" type="button">&#8635; FLIP</button> <button class="wzGrB" id="wzGrBack" type="button">BACK</button></div></div>';
+  content.innerHTML = '<div id="wzGrWrap" class="wzGrScreen">' +
+    '<div class="wzGrStage"><canvas id="wzGrCv"></canvas><div class="wzGrGlow"></div></div>' +
+    '<div class="wzGrNav"><button class="wzGrB wzGrArrow" id="wzGrPrev" type="button" aria-label="Previous character">&#10094;</button><button class="wzGrB wzGrSelect" id="wzGrSel" type="button">SELECT CHARACTER</button><button class="wzGrB wzGrArrow" id="wzGrNext" type="button" aria-label="Next character">&#10095;</button></div>' +
+    '<button class="wzGrB wzGrBack" id="wzGrBack" type="button">&#8592; BACK</button></div>';
   menuSubPanel.classList.add("on");
   try { wzPlaceSidePanel(); } catch (e) {}
   const cv = $("wzGrCv");
@@ -1460,53 +1458,35 @@ function wzOpenGrooming() {
   const pivot = new THREE.Group(); sc.add(pivot);
   const stop = () => { alive = false; try { if (rend) { rend.dispose(); if (rend.forceContextLoss) rend.forceContextLoss(); } } catch (e) {} };
   wzGrStopFn = stop;
-  const label = () => { $("wzGrName").textContent = WZ_CHARS[idx].name; };
-  const status = $("wzGrStatus");
   const show = i => {
     idx = (i + WZ_FIRST_ENEMY) % WZ_FIRST_ENEMY;
     const my = ++token;
-    label();
-    
     if (cur) { pivot.remove(cur.group); if (cur.mixer) cur.mixer.stopAllAction(); cur = null; }
     if (previewBot) { pivot.remove(previewBot.root); previewBot = null; }
     if (WZ_CHARS[idx] && WZ_CHARS[idx].isBlueSoldier) {
       previewBot = buildSoldier(1, false, true);
       wzApplyBlueSoldier(previewBot);
       pivot.add(previewBot.root);
-      if (status) status.textContent = "PVP BLUE TEAM SOLDIER";
       return;
     }
-    if (status) status.textContent = "LOADING...";
     Promise.all([wzLoadChar(idx), wzAnim.ready]).then(r => {
       if (!alive || my !== token) return;
-      if (!r[0]) {
-        if (status) status.textContent = "MODEL FILE MISSING — APK mein models folder add karein";
-        return;
-      }
+      if (!r[0]) return;
       cur = wzInstance(r[0]); pivot.add(cur.group);
-      if (status) { const t = r[0]; status.textContent = "DEBUG: skinned=" + t.skinned + " rolesOK=" + t.rolesOK + " compat=" + t.compat + " anim=" + (cur.mixer ? "yes" : "NO") + " face=" + Math.round((t.faceFix || 0) * 180 / Math.PI) + "deg scale=" + t.s.toFixed(3) + " bones=" + Object.keys(t.names).length; }
       
-    }).catch(e => { console.error("[WZ] preview error", e); if (status && my === token) status.textContent = "PREVIEW ERROR: " + (e && e.message ? e.message : e); });
+    }).catch(e => { console.error("[WZ] preview error", e); });
   };
   $("wzGrPrev").onclick = e => { e.preventDefault(); e.stopPropagation(); show(idx - 1); };
   $("wzGrNext").onclick = e => { e.preventDefault(); e.stopPropagation(); show(idx + 1); };
   $("wzGrSel").onclick = e => {
     e.preventDefault(); e.stopPropagation();
     wzMyChar = idx; try { localStorage.setItem("wzaChar", String(idx)); } catch (_) {}
-    label();
-    wzToast(WZ_CHARS[idx].name + " SELECTED");
-    const selectedName=WZ_CHARS[idx].name;
+    wzToast("CHARACTER SELECTED");
     Promise.resolve().then(()=>typeof window.wzaRefreshAvatar==='function'?window.wzaRefreshAvatar():false).then(ok=>{
       if(!alive)return;
-      if(!ok)wzToast(selectedName+" SAVED — MODEL WILL LOAD WHEN READY",2200);
+      if(!ok)wzToast("SELECTION SAVED",1800);
       stop();closeMenuPanel();
     }).catch(err=>{console.warn('[WZ] selected avatar refresh failed',err);if(alive){stop();closeMenuPanel();}});
-  };
-  $("wzGrFlip").onclick = e => {
-    e.preventDefault(); e.stopPropagation();
-    const d = WZ_CHARS[idx]; d.rot = d.rot ? 0 : Math.PI; wzSaveFlip();
-    if (cur) cur.group.rotation.y = d.rot;
-    if (status) status.textContent = d.rot ? "FLIPPED (muh ulta kiya)" : "FLIP OFF";
   };
   $("wzGrBack").onclick = e => { e.preventDefault(); e.stopPropagation(); stop(); closeMenuPanel(); };
   const loop = () => {
@@ -6809,6 +6789,22 @@ frame();
 #menuSubPanel h2,#menuSubPanel.wzSide h2{padding-right:0!important}
 #menuSubPanel .wzGrB{margin:0!important;padding:5px 12px!important;font-size:10px!important;letter-spacing:1.5px!important;background:rgba(168,50,50,.2)!important;border:1px solid rgba(168,50,50,.8)!important;border-radius:3px;color:#fff!important}
 #menuSubPanel .wzGrB:hover{background:rgba(168,50,50,.45)!important}
+</style>
+
+<style id="wzGroomingPremiumStyle">
+#wzGrWrap.wzGrScreen{width:min(100%,520px);margin:0 auto;padding:8px 10px 12px;box-sizing:border-box;text-align:center;animation:wzGrScreenIn .35s cubic-bezier(.2,.8,.2,1) both}
+#wzGrWrap .wzGrStage{position:relative;width:min(100%,310px);height:min(39vh,340px);min-height:220px;margin:0 auto 13px;overflow:hidden;border:1px solid rgba(165,190,220,.22);border-radius:18px;background:radial-gradient(ellipse at 50% 34%,rgba(73,95,120,.45),rgba(13,19,29,.96) 68%);box-shadow:inset 0 0 35px rgba(0,0,0,.55),0 12px 28px rgba(0,0,0,.3)}
+#wzGrWrap #wzGrCv{position:relative;z-index:1;display:block;width:100%;height:100%;outline:0}
+#wzGrWrap .wzGrGlow{position:absolute;left:18%;right:18%;bottom:8%;height:14%;border-radius:50%;background:rgba(84,171,255,.16);filter:blur(18px);pointer-events:none}
+#wzGrWrap .wzGrNav{display:flex;align-items:center;justify-content:center;gap:10px;margin:0 auto 10px;max-width:360px}
+#wzGrWrap .wzGrB{appearance:none;-webkit-appearance:none;display:inline-flex;align-items:center;justify-content:center;min-height:43px;padding:0 15px;border:1px solid rgba(164,190,220,.35);border-radius:10px;background:linear-gradient(145deg,#26384c,#111c2a);color:#eaf3ff;font:900 11px/1 Arial,sans-serif;letter-spacing:1.2px;box-shadow:0 4px 0 rgba(0,0,0,.32),0 8px 18px rgba(0,0,0,.2);cursor:pointer;transition:transform .16s ease,filter .16s ease,border-color .16s ease,box-shadow .16s ease;-webkit-tap-highlight-color:transparent}
+#wzGrWrap .wzGrB:active{transform:translateY(2px) scale(.97);filter:brightness(1.2);box-shadow:0 1px 0 rgba(0,0,0,.35)}
+#wzGrWrap .wzGrArrow{width:48px;min-width:48px;padding:0;font-size:17px;border-radius:50%;color:#d9eaff}
+#wzGrWrap .wzGrSelect{flex:1;max-width:220px;min-width:0;min-height:48px;border-color:#55c8b2;background:linear-gradient(135deg,#1d806e,#145044 60%,#102f35);color:#f0fffb;box-shadow:0 4px 0 #092d2b,0 0 18px rgba(57,209,174,.17);animation:wzGrSelectPulse 2.8s ease-in-out infinite}
+#wzGrWrap .wzGrBack{min-width:118px;min-height:38px;padding:0 18px;background:rgba(255,255,255,.045);border-color:rgba(190,205,220,.25);color:#cbd6e2;font-size:10px;letter-spacing:1.6px}
+@keyframes wzGrScreenIn{from{opacity:0;transform:translateY(9px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes wzGrSelectPulse{0%,100%{box-shadow:0 4px 0 #092d2b,0 0 10px rgba(57,209,174,.12)}50%{box-shadow:0 4px 0 #092d2b,0 0 19px rgba(57,209,174,.3)}}
+@media(max-height:520px){#wzGrWrap .wzGrStage{height:45vh;min-height:150px}#wzGrWrap .wzGrB{min-height:36px}}
 </style>
 
 <style id="wzaEditLockStyle">
